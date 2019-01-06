@@ -8,10 +8,41 @@
 // @grant        GM_xmlhttpRequest
 // @grant        GM_setValue
 // @grant        GM_getValue
+// @grant        GM_addStyle
 // @require      http://code.jquery.com/jquery-2.1.4.min.js
 // @require      https://code.jquery.com/ui/1.12.1/jquery-ui.js
 // ==/UserScript==
 
+GM_addStyle(`
+    #uniExtToolbar {
+        margin: 5px 0 5px 0;
+    }
+    
+    #uniExtToolbar .inputPanel {
+      display: inline-flex;
+    }
+    
+    #uniExtToolbar .inputPanel div {
+      margin: 0 5px;
+    }
+    
+    #uniExtToolbar .buttonsPanel {
+      display: flex;
+    }
+    
+    #uniExtToolbar .buttonsPanel div {
+      margin: 0 5px 5px 0;
+    }
+    
+    #uniExtToolbar .buttonsPanel button {
+      margin: 10px 0 0 10px;
+      padding: 3px;
+      border-width: 2px;
+      background-color: grey;
+    }
+`);
+
+//TODO GM_xmlhttpRequest goes into load even for error http codes -> handle this to show errors better
 class Plus4uWtm {
 
     constructor() {
@@ -127,11 +158,11 @@ class Clockify {
         );
     };
 
-    //TODO add to button
     roundTimes(e) {
-        console.info(e);
+        console.info("Rounding time entries.");
+        console.debug(e);
         let timeEntries = JSON.parse(e.responseText);
-        timeEntries.timeEntriesList.forEach(this.roundTimeEntry.bind(this));
+        timeEntries.forEach(this.roundTimeEntry.bind(this));
     }
 
     roundTimeEntry(timeEntry) {
@@ -220,16 +251,16 @@ class DateUtils {
         console.info("Adding toolbar to the page.");
 
         const currentDate = DateUtils.getCurrentDate();
-        const intervalSelection = `<input type="date" id="uniExtFrom" value=${currentDate} /><input type="date" id="uniExtTo" value=${currentDate} />`;
-        const clockifyKeyInput = `<input type="password" id="uniExtClockifyKey" />`;
-        const buttons = `<button id="uniExtBtnApply">Apply</button><button id="uniExtBtnRound">Round times</button><button id="uniExtBtnReport">Report</button>`;
-        const toolbar = `<div>${clockifyKeyInput} ${intervalSelection} ${buttons}</div>`;
+        const inputPanel = `<div class="inputPanel"><div><label for="uniExtClockifyKey">Clockify Key:</label><input type="password" id="uniExtClockifyKey" /></div>
+                <div><label for="uniExtFrom">From:</label><input type="date" id="uniExtFrom" value=${currentDate} /></div><div><label for="uniExtTo">To:</label><input type="date" id="uniExtTo" value=${currentDate} /></div></div>`;
+        const buttons = `<div class="buttonsPanel"><button id="uniExtBtnApply">Apply</button><button id="uniExtBtnRound">Round times</button><button id="uniExtBtnReport">Report</button></div>`;
+        const toolbar = `<div id="uniExtToolbar">${inputPanel} ${buttons}</div>`;
         $("body").prepend(toolbar);
 
         document.getElementById("uniExtBtnRound").addEventListener("click",
-            printTsrReport, false);
+            roundTsrReport, false);
         document.getElementById("uniExtBtnApply").addEventListener("click",
-            getInterval, false);
+            printTsrReport, false);
         document.getElementById("uniExtBtnReport").addEventListener("click",
             reportWorkToPlus4u, false);
         console.info("Toolbar init finished");
@@ -250,6 +281,12 @@ class DateUtils {
     let printTsrReport = function () {
         let interval = getInterval();
         getClockify().getTsrClockify(interval, console.info);
+    };
+
+    let roundTsrReport = function () {
+        let interval = getInterval();
+        let clockify = getClockify();
+        clockify.getTsrClockify(interval, clockify.roundTimes.bind(clockify));
     };
 
     let getInterval = function () {
