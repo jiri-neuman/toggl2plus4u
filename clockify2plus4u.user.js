@@ -172,10 +172,12 @@ class Jira4U {
             console.info("Time entry not bound to JIRA issue.");
             return;
         }
+        const startTime = new Date(timeEntry.timeInterval.start);
+        const endTime = new Date(timeEntry.timeInterval.end);
         let dtoIn = {};
         dtoIn.comment = workDescription.descriptionText;
-        dtoIn.start = new Date(timeEntry.timeInterval.start).toISOString();
-        dtoIn.duration = 0;
+        dtoIn.started = this.toIsoString(startTime);
+        dtoIn.timeSpentSeconds = (endTime - startTime) / 1000;
         let requestData = JSON.stringify(dtoIn);
         console.log(`Sending a work log request to ${workDescription.issueKey}. ${requestData}`);
         // let started = this.toIsoString(workInfo.started);
@@ -406,7 +408,7 @@ class ResponseCallback {
         console.info("Adding toolbar to the page.");
 
         const currentDate = DateUtils.getCurrentDate();
-        const inputPanel = `<div class="inputPanel"><div><label for="uniExtClockifyKey">Clockify Key:</label><input type="password" id="uniExtClockifyKey" /></div>
+        const inputPanel = `<div class="inputPanel"><div><label for="uniExtClockifyKey">Clockify Key:</label><input type="password" id="uniExtClockifyKey" name="password" /></div>
                 <div><label for="uniExtFrom">From:</label><input type="date" id="uniExtFrom" value=${currentDate} /></div><div><label for="uniExtTo">To:</label><input type="date" id="uniExtTo" value=${currentDate} /></div></div>`;
         const buttons = `<div class="buttonsPanel"><button id="uniExtBtnApply">Apply</button><button id="uniExtBtnRound">Round times</button><button id="uniExtBtnReport">Report</button></div>`;
         const toolbar = `<div id="uniExtToolbar">${inputPanel} ${buttons}</div>`;
