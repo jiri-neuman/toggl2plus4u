@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Clockify integration with Plus4U and Jira
-// @namespace    http://tampermonkey.net/
+// @namespace    https://github.com/jiri-neuman/clockify2plus4u
 // @version      0.1
 // @description  Integrates Clockify with Plus4U Work Time Management and Jira
 // @author       Jiri Neuman
@@ -42,7 +42,6 @@ GM_addStyle(`
     }
 `);
 
-//TODO GM_xmlhttpRequest goes into load even for error http codes -> handle this to show errors better
 class Plus4uWtm {
 
     constructor() {
@@ -51,12 +50,12 @@ class Plus4uWtm {
         this._fetchToken();
     }
 
-    logWorkItem(timeEntry) {
+    logWorkItem(timeEntry, responseCallback = new ResponseCallback()) {
         let dtoIn = {};
         dtoIn.datetimeFrom = new Date(timeEntry.timeInterval.start).toISOString();
         dtoIn.datetimeTo = new Date(timeEntry.timeInterval.end).toISOString();
         dtoIn.subject = `ues:${timeEntry.project.name}`;
-        if(timeEntry.tags !== null && timeEntry.tags.length > 0) {
+        if (timeEntry.tags !== null && timeEntry.tags.length > 0) {
             dtoIn.category = timeEntry.tags[0].name;
         }
         dtoIn.description = timeEntry.description;
@@ -76,13 +75,13 @@ class Plus4uWtm {
                 },
                 data: requestData,
                 url: `${this.wtmUrl}/createTimesheetItem`,
-                onload: console.info,
+                onload: responseCallback.onResponse.bind(responseCallback),
                 onerror: console.error
             },
         );
     }
 
-    getTsr() {
+    getTsr(responseCallback = new ResponseCallback()) {
         console.log(`Fetching time sheet reports from Plus4U WTM.`);
         //TODO dateTime as argument
 
@@ -98,7 +97,7 @@ class Plus4uWtm {
                 },
                 data: `{"yearMonth":"201812"}`,
                 url: `${this.wtmUrl}/listWorkerTimesheetItemsByMonth`,
-                onload: console.info,
+                onload: responseCallback.onResponse.bind(responseCallback),
                 onerror: console.error
             }
         );
@@ -128,6 +127,135 @@ class Plus4uWtm {
 
 }
 
+
+/**
+ * JIRA API connector.
+ */
+class Jira4U {
+
+    constructor() {
+        console.info("Initializing JIRA");
+        this.jiraUrl = 'https://jira.unicorn.eu';
+        this.jiraBrowseIssue = this.jiraUrl + "/browse";
+        this.jiraRestApiUrl = this.jiraUrl + '/rest/api/2';
+        this.jiraRestApiUrlIssue = this.jiraRestApiUrl + '/issue';
+        this.jiraIssueKeyPattern = /([A-Z]+-\d+)/;
+        console.info("JIRA initialized");
+    }
+
+    /**
+     * @param {string} key JIRA issue key string
+     * @param {ResponseCallback} responseCallback
+     * @param {Function} onerror
+     * @param {?Function} onprogress Optional loading progress callback
+     */
+    loadIssue(key, responseCallback = new ResponseCallback(), onerror, onprogress) {
+        console.info(`Loading issue ${key} from JIRA URL ${this.jiraRestApiUrlIssue.concat("/", key)}. `);
+        // noinspection JSUnresolvedFunction
+        GM_xmlhttpRequest(
+            {
+                method: 'GET',
+                headers: {"Accept": "application/json"},
+                url: this.jiraRestApiUrlIssue.concat("/", key),
+                onreadystatechange: onprogress || function (res) {
+                    console.log("Request state: " + res.readyState);
+                },
+                onload: responseCallback.onResponse.bind(responseCallback),
+                onerror: onerror
+            }
+        );
+    }
+
+    logWork(timeEntry, responseCallback = new ResponseCallback(), onerror = console.error, onprogress = console.info) {
+        let workDescription = WorkDescription.parse(timeEntry.description);
+        if(!workDescription.issueKey) {
+            console.info("Time entry not bound to JIRA issue.");
+            return;
+        }
+        let dtoIn = {};
+        dtoIn.comment = workDescription.descriptionText;
+        dtoIn.start = new Date(timeEntry.timeInterval.start).toISOString();
+        dtoIn.duration = 0;
+        let requestData = JSON.stringify(dtoIn);
+        console.log(`Sending a work log request to ${workDescription.issueKey}. ${requestData}`);
+        // let started = this.toIsoString(workInfo.started);
+        // console.log(`Started at: ${started}`);
+        // noinspection JSUnresolvedFunction
+        GM_xmlhttpRequest(
+            {
+                method: 'POST',
+                headers: {
+                    "Content-Type": "application/json",
+                    //Disable the cross-site request check on the JIRA side
+                    "X-Atlassian-Token": "nocheck",
+                    //Previous header does not work for requests from a web browser
+                    "User-Agent": "xx"
+                },
+                data: requestData,
+                url: this.jiraRestApiUrlIssue.concat("/", workDescription.issueKey, "/worklog"),
+                onreadystatechange: onprogress,
+                onload: responseCallback.onResponse.bind(responseCallback),
+                onerror: onerror
+            }
+        );
+    }
+
+    /**
+     * Converts a date to a proper ISO formatted string, which contains milliseconds and the zone offset suffix.
+     * No other date formats are recognized by JIRA.
+     * @param {Date} date Valid Date object to be formatted.
+     * @returns {string}
+     */
+    toIsoString(date) {
+        let offset = -date.getTimezoneOffset(),
+            offsetSign = offset >= 0 ? '+' : '-',
+            pad = function (num) {
+                const norm = Math.floor(Math.abs(num));
+                return (norm < 10 ? '0' : '') + norm;
+            };
+        return date.getFullYear()
+            + '-' + pad(date.getMonth() + 1)
+            + '-' + pad(date.getDate())
+            + 'T' + pad(date.getHours())
+            + ':' + pad(date.getMinutes())
+            + ':' + pad(date.getSeconds())
+            + '.' + String(date.getUTCMilliseconds()).padStart(3, "0").substr(0, 3)
+            + offsetSign + pad(offset / 60) + pad(offset % 60);
+    }
+
+}
+
+/**
+ * Container for a JIRA issue key + description. It can construct itself by parsing the issue key from work description.
+ */
+class WorkDescription {
+
+    constructor(issueKey = null, descriptionText = "") {
+        this._issueKey = issueKey;
+        this._descriptionText = descriptionText;
+    }
+
+    static parse(workDescriptionText) {
+        const jiraIssueKeyPattern = /([A-Z]+-\d+)/;
+        if (typeof workDescriptionText === "string") {
+            let segments = workDescriptionText.match(jiraIssueKeyPattern);
+            if (segments != null) {
+                let key = segments[1];
+                return new WorkDescription(key, workDescriptionText.replace(key, "").trim());
+            }
+        }
+        return new WorkDescription();
+    }
+
+    get issueKey() {
+        return this._issueKey;
+    }
+
+    get descriptionText() {
+        return this._descriptionText;
+    }
+}
+
 class Clockify {
 
     constructor(apiKey) {
@@ -148,7 +276,7 @@ class Clockify {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
-                    "X-Api-Key":  this.API_KEY
+                    "X-Api-Key": this.API_KEY
                 },
                 url: "https://api.clockify.me/api/workspaces/5bdffdc4b0798754befdf3a0/timeEntries/user/5bdffdc4b0798754befdf39f/entriesInRange",
                 data: requestData,
@@ -226,6 +354,33 @@ class DateUtils {
 
 }
 
+class ResponseCallback {
+
+    constructor(onSuccess, onError, onOther) {
+        this.onSuccess = onSuccess ? onSuccess : console.info;
+        this.onError = onError ? onError : this.logBasicError;
+        this.onOther = onOther ? onOther : console.info;
+    }
+
+    onResponse(response) {
+        console.info(response);
+        if (response.status >= 400) {
+            this.onError(response);
+        } else if (response.status >= 300) {
+            this.onOther(response);
+        } else if (response.status >= 200) {
+           this.onSuccess(response);
+        } else {
+            console.warn(`Cannot handle HTTP status ${response.status}. Response received: ${response}.`);
+        }
+    }
+
+    logBasicError(response) {
+        console.error(`Error response returned. Status code ${response.status}, message '${response.statusText}'. Response: ${response.responseText}.`)
+    }
+
+}
+
 (function () {
     'use strict';
 
@@ -242,7 +397,7 @@ class DateUtils {
         addToolbar();
     };
 
-    let isPageReady = function() {
+    let isPageReady = function () {
         let page = $(".paginator");
         return page.length;
     };
@@ -262,24 +417,32 @@ class DateUtils {
         document.getElementById("uniExtBtnApply").addEventListener("click",
             printTsrReport, false);
         document.getElementById("uniExtBtnReport").addEventListener("click",
-            reportWorkToPlus4u, false);
+            reportWork, false);
         console.info("Toolbar init finished");
     };
 
-    let reportWorkToPlus4u = function () {
+    let reportWork = function () {
         let interval = getInterval();
         getClockify().getTsrClockify(interval, logWork);
     };
 
     let logWork = function (e) {
         let timeEntries = JSON.parse(e.responseText);
-        console.debug(timeEntries);
         console.info(`Reporting ${timeEntries.length} entries to Plus4U.`);
-        timeEntries.forEach(plus4uWtm.logWorkItem.bind(plus4uWtm));
+        timeEntries.forEach(logWorkToPlus4U);
+    };
+
+    let logWorkToPlus4U = function (timeEntry) {
+        plus4uWtm.logWorkItem(timeEntry, new ResponseCallback(function(){logWorkToJira(timeEntry)}));
+    };
+
+    let logWorkToJira = function (timeEntry) {
+        new Jira4U().logWork(timeEntry);
     };
 
     let printTsrReport = function () {
         let interval = getInterval();
+        new Jira4U().loadIssue("FBLI-3000", new ResponseCallback(), console.error, console.debug);
         getClockify().getTsrClockify(interval, console.info);
     };
 
@@ -295,7 +458,7 @@ class DateUtils {
         return {start, end};
     };
 
-    let getClockify = function() {
+    let getClockify = function () {
         const clockifyKey = document.querySelector("#uniExtClockifyKey").value;
         return new Clockify(clockifyKey);
     };
