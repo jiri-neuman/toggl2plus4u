@@ -484,14 +484,16 @@ class TimeEntry {
             let sum = 0;
             let roundedSum = 0;
             for (const te of timeEntries) {
-                sum += te.duration;
-                let start = new Date(te.start);
-                let end = new Date(te.stop);
-                DateUtils.roundDate(start);
-                DateUtils.roundDate(end);
-                roundedSum += DateUtils.getDurationSec(start, end);
+                if(te.duration > 0) {
+                    sum += te.duration;
+                    let start = new Date(te.start);
+                    let end = new Date(te.stop);
+                    DateUtils.roundDate(start);
+                    DateUtils.roundDate(end);
+                    roundedSum += DateUtils.getDurationSec(start, end);
+                }
             }
-            $("#uniExtToSummary").html(`<div<strong>${sum / 60} </strong> minutes will be rounded to <strong>${roundedSum / 60} </strong> minutes</div>`);
+            $("#uniExtToSummary").html(`<div><strong>${Math.round(sum / 60 / 60 *100)/100 } </strong> hours will be rounded to <strong>${Math.round(roundedSum / 60 / 60 *100)/100} </strong> hours</div>`);
         });
     };
 
