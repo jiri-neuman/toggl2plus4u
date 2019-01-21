@@ -251,15 +251,15 @@ class WorkDescription {
 class Toggl {
 
     constructor() {
-
     }
 
     loadTsr(interval, onSuccess) {
         let loadProject = function (timeEntry) {
-            if(timeEntry.pid) {
+            if (timeEntry.pid) {
                 this.getProject(timeEntry.pid, function (resp) {
-                    let project = JSON.parse(resp.responseText);
-                    let timeEntryObj = new TimeEntry(timeEntry, project.data);
+                    let project = JSON.parse(resp.responseText).data;
+                    console.info(`Project with ID ${project.id} has name ${project.name}.`)
+                    let timeEntryObj = new TimeEntry(timeEntry, project);
                     onSuccess(timeEntryObj);
                 }.bind(this));
             } else {
@@ -285,7 +285,7 @@ class Toggl {
                     "Content-Type": "application/json"
                 },
                 url: `https://www.toggl.com/api/v8/time_entries?start_date=${interval.start}&end_date=${interval.end}`,
-                onload: _onSuccess,
+                onload: Toggl.getRetryingFunction(_onSuccess, this.getTsr.bind(this), [interval, onSuccess]),
                 onerror: console.error
             },
         );
@@ -294,8 +294,7 @@ class Toggl {
     getProject(projectId, onSuccess) {
         //TODO should cache this
         let _onSuccess = (typeof onSuccess === 'undefined') ? console.info : onSuccess;
-        console.info(`Fetching Project from Toggl.`);
-
+        console.info(`Fetching project with ID ${projectId} from Toggl.`);
         // noinspection JSUnresolvedFunction
         GM_xmlhttpRequest(
             {
@@ -304,7 +303,7 @@ class Toggl {
                     "Content-Type": "application/json"
                 },
                 url: `https://www.toggl.com/api/v8/projects/${projectId}`,
-                onload: _onSuccess,
+                onload: Toggl.getRetryingFunction(_onSuccess, this.getProject.bind(this), [projectId, onSuccess]),
                 onerror: console.error
             },
         );
@@ -331,11 +330,22 @@ class Toggl {
                 },
                 data: requestData,
                 url: `https://www.toggl.com/api/v8/time_entries/${timeEntry.id}`,
-                onload: console.info,
+                onload: Toggl.getRetryingFunction(console.info, this.roundTimeEntry.bind(this), [timeEntry]),
                 onerror: console.error
             }
         );
     };
+
+    static getRetryingFunction(originalHandler, calledFunction, params) {
+        return function(response) {
+            if(response.status === 429) {
+                console.info(`Too many requests when calling ${calledFunction} with params ${params}. Will retry in a moment.`);
+                setTimeout(calledFunction, 1500, ...params);
+            } else {
+                originalHandler(response);
+            }
+        };
+    }
 
 }
 
@@ -427,7 +437,7 @@ class TimeEntry {
         this.end = togglTimeEntry.stop;
         this.duration = togglTimeEntry.duration;
         this.description = togglTimeEntry.description.trim();
-        if(togglProject) {
+        if (togglProject) {
             this.project = togglProject.name.trim();
         }
         if (togglTimeEntry.tags && togglTimeEntry.tags.length > 0) {
@@ -484,7 +494,7 @@ class TimeEntry {
             let sum = 0;
             let roundedSum = 0;
             for (const te of timeEntries) {
-                if(te.duration > 0) {
+                if (te.duration > 0) {
                     sum += te.duration;
                     let start = new Date(te.start);
                     let end = new Date(te.stop);
@@ -493,7 +503,7 @@ class TimeEntry {
                     roundedSum += DateUtils.getDurationSec(start, end);
                 }
             }
-            $("#uniExtToSummary").html(`<div><strong>${Math.round(sum / 60 / 60 *100)/100 } </strong> hours will be rounded to <strong>${Math.round(roundedSum / 60 / 60 *100)/100} </strong> hours</div>`);
+            $("#uniExtToSummary").html(`<div><strong>${Math.round(sum / 60 / 60 * 100) / 100} </strong> hours will be rounded to <strong>${Math.round(roundedSum / 60 / 60 * 100) / 100} </strong> hours</div>`);
         });
     };
 
