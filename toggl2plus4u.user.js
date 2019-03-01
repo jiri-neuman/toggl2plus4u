@@ -9,8 +9,12 @@
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_addStyle
+// @connect      plus4u.net
+// @connect      jira.unicorn.eu
+// @connect      toggl.com
 // @require      http://code.jquery.com/jquery-2.1.4.min.js
 // @require      https://code.jquery.com/ui/1.12.1/jquery-ui.js
+// @run-at       document-end
 // ==/UserScript==
 
 GM_addStyle(`
@@ -47,11 +51,21 @@ class Plus4uWtm {
 
     constructor() {
         this._token = null;
+        this._initializing = false;
         this._wtmUrl = "https://uuos9.plus4u.net/uu-specialistwtmg01-main/99923616732453117-8031926f783d4aaba733af73c1974840";
-        this._fetchToken();
     }
 
     logWorkItem(timeEntry, responseCallback = new ResponseCallback()) {
+        const self = this;
+        this._fetchToken().then(function (token) {
+            self._logWorkItem(timeEntry, responseCallback, token, self._wtmUrl);
+        }, function (err) {
+            console.error(err);
+        })
+
+    }
+
+    _logWorkItem(timeEntry, responseCallback, token, wtmUrl) {
         let dtoIn = {};
         dtoIn.datetimeFrom = new Date(timeEntry.start).toISOString();
         dtoIn.datetimeTo = new Date(timeEntry.end).toISOString();
@@ -70,12 +84,12 @@ class Plus4uWtm {
                 method: 'POST',
                 headers: {
                     "Content-Type": "application/json",
-                    "Authorization": `Bearer ${this._token}`,
+                    "Authorization": `Bearer ${token}`,
                     "Origin": "https://uuos9.plus4u.net",
-                    "Referer": `${this._wtmUrl}`,
+                    "Referer": `${wtmUrl}`,
                 },
                 data: requestData,
-                url: `${this._wtmUrl}/createTimesheetItem`,
+                url: `${wtmUrl}/createTimesheetItem`,
                 onload: responseCallback.onResponse.bind(responseCallback),
                 onerror: console.error
             },
@@ -105,26 +119,61 @@ class Plus4uWtm {
     }
 
     _fetchToken() {
-        console.log(`Fetching Plus4U authentication token.`);
-        // noinspection JSUnresolvedFunction
-        GM_xmlhttpRequest(
-            {
-                method: 'GET',
-                headers: {
-                    "Origin": "https://oidc.plus4u.net",
-                    "Referer": "https://oidc.plus4u.net/uu-oidcg01-main/99923616732452117-4f06dafc03cb4c7f8c155aa53f0e86be/oauth2?scope=openid&response_type=id_token&prompt=none&redirect_uri=https%3A%2F%2Fplus4u.net%2Fues%2Foauth-login-callback"
-                },
-                url: "https://oidc.plus4u.net/uu-oidcg01-main/99923616732452117-4f06dafc03cb4c7f8c155aa53f0e86be/oauth2?scope=openid&response_type=id_token&prompt=none&redirect_uri=https%3A%2F%2Fplus4u.net%2Fues%2Foauth-login-callback",
-                onload: this._saveToken.bind(this),
-                onerror: console.error
+        const self = this;
+        return new Promise(function (resolve, reject) {
+            if (self._token) {
+                console.log("Plus4U authentication token is ready.");
+                resolve(self._token);
             }
-        );
+            if (self._initializing) {
+                console.log("Plus4U authentication token is already being fetched.");
+                self._waitForToken(resolve, reject);
+            } else {
+                self._initializing = true;
+                console.log(`Fetching Plus4U authentication token.`);
+                // noinspection JSUnresolvedFunction
+                GM_xmlhttpRequest(
+                    {
+                        method: 'GET',
+                        headers: {
+                            "Origin": "https://oidc.plus4u.net",
+                            "Referer": "https://oidc.plus4u.net/uu-oidcg01-main/99923616732452117-4f06dafc03cb4c7f8c155aa53f0e86be/oauth2?scope=openid&response_type=id_token&prompt=none&redirect_uri=https%3A%2F%2Fplus4u.net%2Fues%2Foauth-login-callback"
+                        },
+                        url: "https://oidc.plus4u.net/uu-oidcg01-main/99923616732452117-4f06dafc03cb4c7f8c155aa53f0e86be/oauth2?scope=openid&response_type=id_token&prompt=none&redirect_uri=https%3A%2F%2Fplus4u.net%2Fues%2Foauth-login-callback",
+                        onload: function (e) {
+                            self._extractToken(e);
+                            self._initializing = false;
+                            resolve(self._token);
+                        },
+                        onerror: function (e) {
+                            self._initializing = false;
+                            reject(e);
+                        }
+                    }
+                );
+            }
+        });
     }
 
-    _saveToken(e) {
+    _waitForToken(resolve, reject) {
+        const self = this;
+        if(self._token) {
+            resolve(self._token);
+        }
+        if(self._initializing) {
+            setTimeout(function () {
+                self._waitForToken(resolve, reject)
+            }, 100);
+        } else {
+            reject();
+        }
+
+    }
+
+    _extractToken(e) {
         let url = new URL(e.finalUrl.replace("#", "?"));
         this._token = url.searchParams.get("id_token");
-        console.info("Token obtained.");
+        console.info("Plus4U authentication token obtained.");
     }
 
 }
@@ -255,26 +304,28 @@ class Toggl {
     }
 
     loadTsr(interval, onSuccess) {
+        const self = this;
         let loadProject = function (timeEntry) {
             if (timeEntry.pid) {
-                this.getProject(timeEntry.pid, function (resp) {
+                self.getProject(timeEntry.pid, function (resp) {
                     let project = JSON.parse(resp.responseText).data;
                     console.info(`Project with ID ${project.id} has name ${project.name}.`)
                     let timeEntryObj = new TimeEntry(timeEntry, project);
                     onSuccess(timeEntryObj);
-                }.bind(this));
+                });
             } else {
                 let timeEntryObj = new TimeEntry(timeEntry);
                 onSuccess(timeEntryObj);
             }
         };
-        this.getTsr(interval, function (e) {
+        self.getTsr(interval, function (e) {
             let timeEntries = JSON.parse(e.responseText);
-            timeEntries.forEach(loadProject.bind(this));
-        }.bind(this));
+            timeEntries.forEach(loadProject.bind(self));
+        });
     }
 
     getTsr(interval, onSuccess) {
+        const self = this;
         let _onSuccess = (typeof onSuccess === 'undefined') ? console.info : onSuccess;
         console.info(`Fetching TSR from Toggl.`);
 
@@ -286,7 +337,7 @@ class Toggl {
                     "Content-Type": "application/json"
                 },
                 url: `https://www.toggl.com/api/v8/time_entries?start_date=${interval.start}&end_date=${interval.end}`,
-                onload: Toggl.getRetryingFunction(_onSuccess, this.getTsr.bind(this), [interval, onSuccess]),
+                onload: Toggl.getRetryingFunction(_onSuccess, self.getTsr, [interval, onSuccess]),
                 onerror: console.error
             },
         );
@@ -338,10 +389,11 @@ class Toggl {
     };
 
     static getRetryingFunction(originalHandler, calledFunction, params) {
-        return function(response) {
-            if(response.status === 429) {
+        return function (response) {
+            if (response.status === 429) {
                 console.info(`Too many requests when calling ${calledFunction} with params ${params}. Will retry in a moment.`);
-                setTimeout(calledFunction, 1500, ...params);
+                let timeout = 500 + Math.floor(Math.random() * 1000);
+                setTimeout(calledFunction, timeout, ...params);
             } else {
                 originalHandler(response);
             }
