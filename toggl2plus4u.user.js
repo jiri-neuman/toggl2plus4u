@@ -303,26 +303,33 @@ class Toggl {
     constructor() {
     }
 
-    loadTsr(interval, onSuccess) {
+    loadTsr(interval) {
         const self = this;
-        let loadProject = function (timeEntry) {
-            if (timeEntry.pid) {
-                self.getProject(timeEntry.pid, function (resp) {
-                    let project = JSON.parse(resp.responseText).data;
-                    console.info(`Project with ID ${project.id} has name ${project.name}.`)
-                    let timeEntryObj = new TimeEntry(timeEntry, project);
-                    onSuccess(timeEntryObj);
-                });
-            } else {
-                let timeEntryObj = new TimeEntry(timeEntry);
-                onSuccess(timeEntryObj);
-            }
-        };
-        self.getTsr(interval, function (e) {
-            let timeEntries = JSON.parse(e.responseText);
-            timeEntries.forEach(loadProject.bind(self));
+        return new Promise(function (resolve, reject) {
+            self.getTsr(interval, function (e) {
+                let timeEntries = JSON.parse(e.responseText);
+                resolve(timeEntries);
+            }, reject);
         });
     }
+
+
+     loadProject(timeEntry) {
+        const self = this;
+        return new Promise(function(resolve, reject) {
+             if (timeEntry.pid) {
+                 self.getProject(timeEntry.pid, function (resp) {
+                     let project = JSON.parse(resp.responseText).data;
+                     console.info(`Project with ID ${project.id} has name ${project.name}.`)
+                     let timeEntryObj = new TimeEntry(timeEntry, project);
+                     resolve(timeEntryObj);
+                 });
+             } else {
+                 let timeEntryObj = new TimeEntry(timeEntry);
+                 resolve(timeEntryObj);
+             }
+         });
+    };
 
     getTsr(interval, onSuccess) {
         const self = this;
@@ -363,7 +370,7 @@ class Toggl {
 
     roundTimeEntry(timeEntry) {
         let start = new Date(timeEntry.start);
-        let end = new Date(timeEntry.end);
+        let end = new Date(timeEntry.stop);
         DateUtils.roundDate(start);
         DateUtils.roundDate(end);
 
@@ -372,6 +379,10 @@ class Toggl {
         dtoIn.time_entry.start = start;
         dtoIn.time_entry.stop = end;
         dtoIn.time_entry.duration = DateUtils.getDurationSec(start, end);
+        if(dtoIn.time_entry.duration === 0 || isNaN(dtoIn.time_entry.duration)) {
+            console.warn("Zero duration during rounding. Won't do that! This is probably bug in the script.");
+            return;
+        }
         const requestData = JSON.stringify(dtoIn);
         // noinspection JSUnresolvedFunction
         GM_xmlhttpRequest(
@@ -439,6 +450,7 @@ class DateUtils {
         let now = new Date();
         now.setMilliseconds(0);
         let first = now.getDate() - (now.getDay() + 6) % 7; // First day is the day of the month - the day of the week (monday made the first day)
+        first = first + 7; //TODO remove
         let last = first + 6; // last day is the first day + 6
 
         let firstDay = new Date(now);
@@ -542,8 +554,7 @@ class TimeEntry {
     };
 
     let printReportSummary = function () {
-        toggl.getTsr(getInterval(), function (resp) {
-            let timeEntries = JSON.parse(resp.responseText);
+        toggl.loadTsr(getInterval()).then(function (timeEntries) {
             let sum = 0;
             let roundedSum = 0;
             for (const te of timeEntries) {
@@ -560,14 +571,25 @@ class TimeEntry {
         });
     };
 
+    let reported=0;
+    let toReport=0;
+
     let reportWork = function () {
         let interval = getInterval();
-        toggl.loadTsr(interval, logWorkToPlus4U);
+        toggl.loadTsr(interval).then(function(timeEntries) {
+            toReport = timeEntries.length;
+            for (let i = 0; i < timeEntries.length; ++i) {
+                toggl.loadProject(timeEntries[i]).then(function(timeEntry) {
+                    logWorkToPlus4U(timeEntry);
+                });
+            }
+        });
     };
 
     let logWorkToPlus4U = function (timeEntry) {
         plus4uWtm.logWorkItem(timeEntry, new ResponseCallback(function () {
-            logWorkToJira(timeEntry)
+            logWorkToJira(timeEntry);
+            console.info(`Reported: ${++reported} out of ${toReport}`);
         }));
     };
 
@@ -577,7 +599,14 @@ class TimeEntry {
 
     let roundTsrReport = function () {
         let interval = getInterval();
-        toggl.loadTsr(interval, toggl.roundTimeEntry.bind(toggl));
+        toggl.loadTsr(interval).then(function(timeEntries) {
+            for (let i = 0; i < timeEntries.length; ++i) {
+                toggl.roundTimeEntry(timeEntries[i]);
+            }
+            printReportSummary();
+        }, function(err) {
+            console.error(err);
+        });
     };
 
     let getInterval = function () {
