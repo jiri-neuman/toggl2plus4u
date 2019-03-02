@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Toggl integration with Plus4U and Jira
 // @namespace    https://github.com/jiri-neuman/toggl2plus4u
-// @version      0.3
+// @version      0.4
 // @description  Integrates Toggl with Plus4U Work Time Management and Jira
 // @author       Jiri Neuman
 // @match        https://toggl.com/app/timer
@@ -45,6 +45,21 @@ GM_addStyle(`
       background-color: grey;
       z-index: 1000;
     }
+    
+    #uniExtToolbar .error {
+      color: red;
+      font-weight: bold;
+    }
+    
+    #uniExtToolbar .success {
+      color: green;
+      font-weight: bold;
+    }
+    
+    #uniExtToolbar .warning {
+      color: orange;
+      font-weight: bold;
+    }
 `);
 
 class Plus4uWtm {
@@ -55,45 +70,45 @@ class Plus4uWtm {
         this._wtmUrl = "https://uuos9.plus4u.net/uu-specialistwtmg01-main/99923616732453117-8031926f783d4aaba733af73c1974840";
     }
 
-    logWorkItem(timeEntry, responseCallback = new ResponseCallback()) {
-        const self = this;
-        this._fetchToken().then(function (token) {
-            self._logWorkItem(timeEntry, responseCallback, token, self._wtmUrl);
-        }, function (err) {
-            console.error(err);
-        })
-
+    async logWorkItem(timeEntry) {
+        const token = await this._fetchToken();
+        const wtmUrl = this._wtmUrl;
+        return await this._logWorkItem(timeEntry, token, wtmUrl);
     }
 
-    _logWorkItem(timeEntry, responseCallback, token, wtmUrl) {
-        let dtoIn = {};
-        dtoIn.datetimeFrom = new Date(timeEntry.start).toISOString();
-        dtoIn.datetimeTo = new Date(timeEntry.end).toISOString();
-        dtoIn.subject = `ues:${timeEntry.project.trim()}`;
-        if (timeEntry.category) {
-            dtoIn.category = timeEntry.category;
-        }
-        dtoIn.description = timeEntry.description;
+    _logWorkItem(timeEntry, token, wtmUrl) {
+        return new Promise(function (resolve, reject) {
+            let dtoIn = {};
+            dtoIn.datetimeFrom = new Date(timeEntry.start).toISOString();
+            dtoIn.datetimeTo = new Date(timeEntry.stop).toISOString();
+            dtoIn.subject = `ues:${timeEntry.project.trim()}`;
+            if (timeEntry.category) {
+                dtoIn.category = timeEntry.category;
+            }
+            dtoIn.description = timeEntry.description;
 
-        const requestData = JSON.stringify(dtoIn);
-        console.debug(`Sending time entry to Plus4U: ${requestData}`);
+            const requestData = JSON.stringify(dtoIn);
+            console.info(`Sending time entry to Plus4U: ${requestData}`);
 
-        // noinspection JSUnresolvedFunction
-        GM_xmlhttpRequest(
-            {
-                method: 'POST',
-                headers: {
-                    "Content-Type": "application/json",
-                    "Authorization": `Bearer ${token}`,
-                    "Origin": "https://uuos9.plus4u.net",
-                    "Referer": `${wtmUrl}`,
+            let responseCallback = new ResponseCallback(resolve, reject);
+            // noinspection JSUnresolvedFunction
+            GM_xmlhttpRequest(
+                {
+                    method: 'POST',
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Authorization": `Bearer ${token}`,
+                        "Origin": "https://uuos9.plus4u.net",
+                        "Referer": `${wtmUrl}`,
+                    },
+                    data: requestData,
+                    url: `${wtmUrl}/createTimesheetItem`,
+                    onload: responseCallback.onResponse.bind(responseCallback),
+                    onerror: reject
                 },
-                data: requestData,
-                url: `${wtmUrl}/createTimesheetItem`,
-                onload: responseCallback.onResponse.bind(responseCallback),
-                onerror: console.error
-            },
-        );
+            );
+
+        });
     }
 
     getTsr(responseCallback = new ResponseCallback()) {
@@ -157,10 +172,10 @@ class Plus4uWtm {
 
     _waitForToken(resolve, reject) {
         const self = this;
-        if(self._token) {
+        if (self._token) {
             resolve(self._token);
         }
-        if(self._initializing) {
+        if (self._initializing) {
             setTimeout(function () {
                 self._waitForToken(resolve, reject)
             }, 100);
@@ -215,39 +230,39 @@ class Jira4U {
         );
     }
 
-    logWork(timeEntry, responseCallback = new ResponseCallback(), onerror = console.error, onprogress) {
-        let workDescription = WorkDescription.parse(timeEntry.description);
-        console.info(timeEntry, workDescription);
-        if (!workDescription.issueKey) {
-            console.info("Time entry not bound to JIRA issue.");
-            return;
-        }
-        const startTime = new Date(timeEntry.start);
-        const endTime = new Date(timeEntry.end);
-        let dtoIn = {};
-        dtoIn.comment = workDescription.descriptionText;
-        dtoIn.started = this.toIsoString(startTime);
-        dtoIn.timeSpentSeconds = DateUtils.getDurationSec(startTime, endTime);
-        let requestData = JSON.stringify(dtoIn);
-        console.log(`Sending a work log request to ${workDescription.issueKey}. ${requestData}`);
-        // noinspection JSUnresolvedFunction
-        GM_xmlhttpRequest(
-            {
-                method: 'POST',
-                headers: {
-                    "Content-Type": "application/json",
-                    //Disable the cross-site request check on the JIRA side
-                    "X-Atlassian-Token": "nocheck",
-                    //Previous header does not work for requests from a web browser
-                    "User-Agent": "xx"
-                },
-                data: requestData,
-                url: this.jiraRestApiUrlIssue.concat("/", workDescription.issueKey, "/worklog"),
-                onreadystatechange: onprogress,
-                onload: responseCallback.onResponse.bind(responseCallback),
-                onerror: onerror
+    async logWork(timeEntry) {
+        const self = this;
+        return new Promise(function (resolve, reject) {
+            if (!timeEntry.isJiraTask()) {
+                console.info("Time entry not bound to JIRA issue.");
+                resolve(0);
             }
-        );
+            const startTime = new Date(timeEntry.start);
+            const endTime = new Date(timeEntry.stop);
+            let dtoIn = {};
+            dtoIn.comment = timeEntry.workDescription.descriptionText;
+            dtoIn.started = self.toIsoString(startTime);
+            dtoIn.timeSpentSeconds = DateUtils.getDurationSec(startTime, endTime);
+            let requestData = JSON.stringify(dtoIn);
+            console.log(`Sending a work log request to ${timeEntry.workDescription.issueKey}. ${requestData}`);
+            // noinspection JSUnresolvedFunction
+            GM_xmlhttpRequest(
+                {
+                    method: 'POST',
+                    headers: {
+                        "Content-Type": "application/json",
+                        //Disable the cross-site request check on the JIRA side
+                        "X-Atlassian-Token": "nocheck",
+                        //Previous header does not work for requests from a web browser
+                        "User-Agent": "xx"
+                    },
+                    data: requestData,
+                    url: self.jiraRestApiUrlIssue.concat("/", timeEntry.workDescription.issueKey, "/worklog"),
+                    onload: resolve,
+                    onerror: reject
+                }
+            );
+        });
     }
 
     /**
@@ -306,32 +321,36 @@ class Toggl {
     loadTsr(interval) {
         const self = this;
         return new Promise(function (resolve, reject) {
-            self.getTsr(interval, function (e) {
+            self._getTsr(interval, function (e) {
                 let timeEntries = JSON.parse(e.responseText);
-                resolve(timeEntries);
+                let loadTsrDtoOut = [];
+                for(const entry of timeEntries) {
+                    loadTsrDtoOut.push(new TimeEntry(entry));
+                }
+                resolve(loadTsrDtoOut);
             }, reject);
         });
     }
 
 
-     loadProject(timeEntry) {
+    async loadProject(timeEntry) {
         const self = this;
-        return new Promise(function(resolve, reject) {
-             if (timeEntry.pid) {
-                 self.getProject(timeEntry.pid, function (resp) {
-                     let project = JSON.parse(resp.responseText).data;
-                     console.info(`Project with ID ${project.id} has name ${project.name}.`)
-                     let timeEntryObj = new TimeEntry(timeEntry, project);
-                     resolve(timeEntryObj);
-                 });
-             } else {
-                 let timeEntryObj = new TimeEntry(timeEntry);
-                 resolve(timeEntryObj);
-             }
-         });
+        return new Promise(function (resolve, reject) {
+            if (timeEntry.pid) {
+                self._getProject(timeEntry.pid, function (resp) {
+                    let project = JSON.parse(resp.responseText).data;
+                    console.info(`Project with ID ${project.id} has name ${project.name}.`)
+                    let timeEntryObj = new TimeEntry(timeEntry, project);
+                    resolve(timeEntryObj);
+                });
+            } else {
+                let timeEntryObj = new TimeEntry(timeEntry);
+                resolve(timeEntryObj);
+            }
+        });
     };
 
-    getTsr(interval, onSuccess) {
+    _getTsr(interval, onSuccess, onError = console.error) {
         const self = this;
         let _onSuccess = (typeof onSuccess === 'undefined') ? console.info : onSuccess;
         console.info(`Fetching TSR from Toggl.`);
@@ -344,14 +363,13 @@ class Toggl {
                     "Content-Type": "application/json"
                 },
                 url: `https://www.toggl.com/api/v8/time_entries?start_date=${interval.start}&end_date=${interval.end}`,
-                onload: Toggl.getRetryingFunction(_onSuccess, self.getTsr, [interval, onSuccess]),
-                onerror: console.error
+                onload: Toggl._getRetryingFunction(_onSuccess, self._getTsr, [interval, onSuccess]),
+                onerror: onError
             },
         );
     };
 
-    getProject(projectId, onSuccess) {
-        //TODO should cache this
+    _getProject(projectId, onSuccess) {
         let _onSuccess = (typeof onSuccess === 'undefined') ? console.info : onSuccess;
         console.info(`Fetching project with ID ${projectId} from Toggl.`);
         // noinspection JSUnresolvedFunction
@@ -362,44 +380,47 @@ class Toggl {
                     "Content-Type": "application/json"
                 },
                 url: `https://www.toggl.com/api/v8/projects/${projectId}`,
-                onload: Toggl.getRetryingFunction(_onSuccess, this.getProject.bind(this), [projectId, onSuccess]),
+                onload: Toggl._getRetryingFunction(_onSuccess, this._getProject.bind(this), [projectId, onSuccess]),
                 onerror: console.error
             },
         );
     };
 
     roundTimeEntry(timeEntry) {
-        let start = new Date(timeEntry.start);
-        let end = new Date(timeEntry.stop);
-        DateUtils.roundDate(start);
-        DateUtils.roundDate(end);
+        const self = this;
+        return new Promise(function (resolve, reject) {
+            let start = new Date(timeEntry.start);
+            let end = new Date(timeEntry.stop);
+            DateUtils.roundDate(start);
+            DateUtils.roundDate(end);
 
-        let dtoIn = {};
-        dtoIn.time_entry = {};
-        dtoIn.time_entry.start = start;
-        dtoIn.time_entry.stop = end;
-        dtoIn.time_entry.duration = DateUtils.getDurationSec(start, end);
-        if(dtoIn.time_entry.duration === 0 || isNaN(dtoIn.time_entry.duration)) {
-            console.warn("Zero duration during rounding. Won't do that! This is probably bug in the script.");
-            return;
-        }
-        const requestData = JSON.stringify(dtoIn);
-        // noinspection JSUnresolvedFunction
-        GM_xmlhttpRequest(
-            {
-                method: "PUT",
-                headers: {
-                    "Content-Type": "application/json"
-                },
-                data: requestData,
-                url: `https://www.toggl.com/api/v8/time_entries/${timeEntry.id}`,
-                onload: Toggl.getRetryingFunction(console.info, this.roundTimeEntry.bind(this), [timeEntry]),
-                onerror: console.error
+            let dtoIn = {};
+            dtoIn.time_entry = {};
+            dtoIn.time_entry.start = start;
+            dtoIn.time_entry.stop = end;
+            dtoIn.time_entry.duration = DateUtils.getDurationSec(start, end);
+            if (dtoIn.time_entry.duration === 0 || isNaN(dtoIn.time_entry.duration)) {
+                console.warn("Zero duration during rounding. Won't do that! This is probably bug in the script.");
+                return;
             }
-        );
+            const requestData = JSON.stringify(dtoIn);
+            // noinspection JSUnresolvedFunction
+            GM_xmlhttpRequest(
+                {
+                    method: "PUT",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    data: requestData,
+                    url: `https://www.toggl.com/api/v8/time_entries/${timeEntry.id}`,
+                    onload: Toggl._getRetryingFunction(resolve, self.roundTimeEntry.bind(self), [timeEntry]),
+                    onerror: reject
+                }
+            );
+        })
     };
 
-    static getRetryingFunction(originalHandler, calledFunction, params) {
+    static _getRetryingFunction(originalHandler, calledFunction, params) {
         return function (response) {
             if (response.status === 429) {
                 console.info(`Too many requests when calling ${calledFunction} with params ${params}. Will retry in a moment.`);
@@ -450,7 +471,6 @@ class DateUtils {
         let now = new Date();
         now.setMilliseconds(0);
         let first = now.getDate() - (now.getDay() + 6) % 7; // First day is the day of the month - the day of the week (monday made the first day)
-        first = first + 7; //TODO remove
         let last = first + 6; // last day is the first day + 6
 
         let firstDay = new Date(now);
@@ -476,7 +496,7 @@ class ResponseCallback {
     }
 
     onResponse(response) {
-        console.info(response);
+        console.info(`Status of the received response: ${response.status}.`);
         if (response.status >= 400) {
             this.onError(response);
         } else if (response.status >= 300) {
@@ -499,9 +519,13 @@ class TimeEntry {
     constructor(togglTimeEntry, togglProject) {
         this.id = togglTimeEntry.id;
         this.start = togglTimeEntry.start;
-        this.end = togglTimeEntry.stop;
+        this.stop = togglTimeEntry.stop;
+        this.pid = togglTimeEntry.pid;
         this.duration = togglTimeEntry.duration;
-        this.description = togglTimeEntry.description.trim();
+        if(togglTimeEntry.description) {
+            this.description = togglTimeEntry.description.trim();
+            this.workDescription = WorkDescription.parse(togglTimeEntry.description.trim());
+        }
         if (togglProject) {
             this.project = togglProject.name.trim();
         }
@@ -510,16 +534,74 @@ class TimeEntry {
         }
     }
 
+    isJiraTask() {
+        return this.workDescription.issueKey;
+    }
+
+
 }
 
-(function () {
+class ReportStatus {
+    constructor() {
+        this.totalEntries = 0;
+        this.plus4uReported = 0;
+        this.plus4uFailures = [];
+        this.jiraRelated = 0;
+        this.jiraReported = 0;
+        this.jiraFailures = [];
+    }
+
+    reset(timeEntries) {
+        this.totalEntries = timeEntries.length;
+        this.plus4uFailures = [];
+        this.plus4uReported = 0;
+        this.jiraFailures = [];
+        this.jiraReported = 0;
+        this.jiraRelated = 0;
+        for(const entry of timeEntries) {
+            if(entry.isJiraTask()) {
+                this.jiraRelated++;
+            }
+        }
+        this.printProgress();
+    }
+
+    addPlus4u(failure) {
+        if (failure) {
+            this.plus4uFailures.push(failure);
+        } else {
+            this.plus4uReported++;
+        }
+        this.printProgress();
+    }
+
+    addJira(failure) {
+        if (failure) {
+            this.jiraFailures.push(failure);
+        } else {
+            this.jiraReported++;
+        }
+        this.printProgress();
+    }
+
+    printProgress() {
+        $("#uniExtStatus").html(`
+            <div><strong>Total entries: ${this.totalEntries}</strong> 
+            <br/><strong>Plus4U: </strong><span class=${this.plus4uReported === this.totalEntries ? "success" : ""}>${this.plus4uReported} reported </span> (<span class=${this.plus4uFailures.length > 0 ? "error" : ""}>${this.plus4uFailures.length} failed </span>) 
+            <br/><strong>Jira: </strong><span class=${this.jiraReported === this.jiraRelated ? "success" : ""}>${this.jiraReported} reported </span> out of ${this.jiraRelated} related. (<span class=${this.jiraFailures.length > 0 ? "error" : ""}>${this.jiraFailures.length} failed</span>).
+        </div>`);
+    };
+}
+
+(async function () {
     'use strict';
 
     const plus4uWtm = new Plus4uWtm();
     const toggl = new Toggl();
     const jira = new Jira4U();
+    let status = new ReportStatus();
 
-    let initPage = function () {
+    let initPage = async function () {
         console.info("Initializing Toggl2plus4u extension.");
 
         if (!isPageReady()) {
@@ -527,7 +609,7 @@ class TimeEntry {
             return;
         }
 
-        addToolbar();
+        await addToolbar();
     };
 
     let isPageReady = function () {
@@ -535,12 +617,12 @@ class TimeEntry {
         return page.length;
     };
 
-    let addToolbar = function () {
+    let addToolbar = async function () {
         console.info("Adding toolbar to the page.");
 
         const thisWeek = DateUtils.getThisWeek();
         const inputPanel = `<div class="inputPanel">
-                <div><label for="uniExtFrom">From:</label><input type="date" id="uniExtFrom" value=${DateUtils.toHtmlFormat(thisWeek.start)} /></div><div><label for="uniExtTo">To:</label><input type="date" id="uniExtTo" value=${DateUtils.toHtmlFormat(thisWeek.end)} /></div><div id="uniExtToSummary"></div></div>`;
+                <div><label for="uniExtFrom">From:</label><input type="date" id="uniExtFrom" value=${DateUtils.toHtmlFormat(thisWeek.start)} /></div><div><label for="uniExtTo">To:</label><input type="date" id="uniExtTo" value=${DateUtils.toHtmlFormat(thisWeek.end)} /></div><div id="uniExtToSummary"></div><div id="uniExtStatus"></div></div>`;
         const buttons = `<div class="buttonsPanel"><button id="uniExtBtnRound">Round times</button><button id="uniExtBtnReport">Report</button></div>`;
         const toolbar = `<div id="uniExtToolbar">${inputPanel} ${buttons}</div>`;
         $(".right-pane-inner .react-viewport-container").prepend(toolbar);
@@ -550,63 +632,67 @@ class TimeEntry {
         document.getElementById("uniExtFrom").addEventListener("change", printReportSummary, false);
         document.getElementById("uniExtTo").addEventListener("change", printReportSummary, false);
         console.info("Toolbar init finished");
-        printReportSummary();
+        let timeEntries = await toggl.loadTsr(getInterval());
+        await printReportSummary();
+        status.reset(timeEntries);
     };
 
-    let printReportSummary = function () {
-        toggl.loadTsr(getInterval()).then(function (timeEntries) {
-            let sum = 0;
-            let roundedSum = 0;
-            for (const te of timeEntries) {
-                if (te.duration > 0) {
-                    sum += te.duration;
-                    let start = new Date(te.start);
-                    let end = new Date(te.stop);
-                    DateUtils.roundDate(start);
-                    DateUtils.roundDate(end);
-                    roundedSum += DateUtils.getDurationSec(start, end);
+    let printReportSummary = async function () {
+        const timeEntries = await toggl.loadTsr(getInterval());
+        let sum = 0;
+        let roundedSum = 0;
+        for (const te of timeEntries) {
+            if (te.duration > 0) {
+                sum += te.duration;
+                let start = new Date(te.start);
+                let end = new Date(te.stop);
+                DateUtils.roundDate(start);
+                DateUtils.roundDate(end);
+                roundedSum += DateUtils.getDurationSec(start, end);
+            }
+        }
+        $("#uniExtToSummary").html(`<div><strong>${Math.round(sum / 60 / 60 * 100) / 100} </strong> hours will be rounded to <strong>${Math.round(roundedSum / 60 / 60 * 100) / 100} </strong> hours</div>`);
+    };
+
+    let reportWork = async function () {
+        let interval = getInterval();
+        let timeEntries = await toggl.loadTsr(interval);
+        status.reset(timeEntries);
+        timeEntries.forEach(async function (entry) {
+            let timeEntry = await toggl.loadProject(entry);
+            try {
+                await plus4uWtm.logWorkItem(timeEntry);
+            } catch (e) {
+                if(e.responseText) {
+                    console.error(`Plus4U code: ${e.status}, response: ${e.responseText}`);
+                    status.addPlus4u(e.responseText);
+                } else {
+                    console.error(`Plus4U error: ${e}`);
+                    status.addPlus4u(e);
                 }
+                return;
             }
-            $("#uniExtToSummary").html(`<div><strong>${Math.round(sum / 60 / 60 * 100) / 100} </strong> hours will be rounded to <strong>${Math.round(roundedSum / 60 / 60 * 100) / 100} </strong> hours</div>`);
+            status.addPlus4u();
+            if(timeEntry.isJiraTask()) {
+                try {
+                    await jira.logWork(timeEntry);
+                } catch (e) {
+                    console.error(`JIRA error: ${e}.`);
+                    status.addJira(e);
+                    return;
+                }
+                status.addJira();
+            }
         });
     };
 
-    let reported=0;
-    let toReport=0;
-
-    let reportWork = function () {
+    let roundTsrReport = async function () {
         let interval = getInterval();
-        toggl.loadTsr(interval).then(function(timeEntries) {
-            toReport = timeEntries.length;
-            for (let i = 0; i < timeEntries.length; ++i) {
-                toggl.loadProject(timeEntries[i]).then(function(timeEntry) {
-                    logWorkToPlus4U(timeEntry);
-                });
-            }
-        });
-    };
-
-    let logWorkToPlus4U = function (timeEntry) {
-        plus4uWtm.logWorkItem(timeEntry, new ResponseCallback(function () {
-            logWorkToJira(timeEntry);
-            console.info(`Reported: ${++reported} out of ${toReport}`);
-        }));
-    };
-
-    let logWorkToJira = function (timeEntry) {
-        jira.logWork(timeEntry);
-    };
-
-    let roundTsrReport = function () {
-        let interval = getInterval();
-        toggl.loadTsr(interval).then(function(timeEntries) {
-            for (let i = 0; i < timeEntries.length; ++i) {
-                toggl.roundTimeEntry(timeEntries[i]);
-            }
-            printReportSummary();
-        }, function(err) {
-            console.error(err);
-        });
+        let timeEntries = await toggl.loadTsr(interval);
+        for (const entry of timeEntries) {
+            await toggl.roundTimeEntry(entry);
+        }
+        await printReportSummary();
     };
 
     let getInterval = function () {
@@ -615,6 +701,6 @@ class TimeEntry {
         return {start, end};
     };
 
-    initPage();
+    await initPage();
 })();
 
