@@ -213,7 +213,7 @@ class Jira4U {
      * @param {Function} onerror
      * @param {?Function} onprogress Optional loading progress callback
      */
-    loadIssue(key, responseCallback = new ResponseCallback(), onerror, onprogress) {
+    loadIssue(key, responseCallback, onerror, onprogress) {
         console.info(`Loading issue ${key} from JIRA URL ${this.jiraRestApiUrlIssue.concat("/", key)}. `);
         // noinspection JSUnresolvedFunction
         GM_xmlhttpRequest(
@@ -339,7 +339,7 @@ class Toggl {
             if (timeEntry.pid) {
                 self._getProject(timeEntry.pid, function (resp) {
                     let project = JSON.parse(resp.responseText).data;
-                    console.info(`Project with ID ${project.id} has name ${project.name}.`)
+                    console.info(`Project with ID ${project.id} has name ${project.name}.`);
                     let timeEntryObj = new TimeEntry(timeEntry, project);
                     resolve(timeEntryObj);
                 });
@@ -664,8 +664,19 @@ class ReportStatus {
                 await plus4uWtm.logWorkItem(timeEntry);
             } catch (e) {
                 if(e.responseText) {
-                    console.error(`Plus4U code: ${e.status}, response: ${e.responseText}`);
-                    status.addPlus4u(e.responseText);
+                    const dtoOut = JSON.parse(e.responseText);
+                    if(dtoOut.uuAppErrorMap["uu-specialistwtm-main/createTimesheetItem/overlappingItemExists"] !== undefined) {
+                        // If the item overlaps an existing one, consider it already reported and set as success. Also if it is related to Jira, consider it reported too.
+                        // TODO this might be improved to check duration and description and also to check if it is reported in Jira or not
+                        console.warn(`Entry already exists in Plus4U. ${e.responseText}`);
+                        status.addPlus4u();
+                        if(timeEntry.isJiraTask()) {
+                            status.addJira();
+                        }
+                    } else {
+                        console.error(`Plus4U code: ${e.status}, response: ${e.responseText}`);
+                        status.addPlus4u(e.responseText);
+                    }
                 } else {
                     console.error(`Plus4U error: ${e}`);
                     status.addPlus4u(e);
