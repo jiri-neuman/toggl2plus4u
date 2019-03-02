@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Toggl integration with Plus4U and Jira
 // @namespace    https://github.com/jiri-neuman/toggl2plus4u
-// @version      0.5
+// @version      0.5.1
 // @description  Integrates Toggl with Plus4U Work Time Management and Jira
 // @author       Jiri Neuman
 // @match        https://toggl.com/app/timer
@@ -245,6 +245,7 @@ class Jira4U {
             dtoIn.timeSpentSeconds = DateUtils.getDurationSec(startTime, endTime);
             let requestData = JSON.stringify(dtoIn);
             console.log(`Sending a work log request to ${timeEntry.workDescription.issueKey}. ${requestData}`);
+            let responseCallback = new ResponseCallback(resolve, reject);
             // noinspection JSUnresolvedFunction
             GM_xmlhttpRequest(
                 {
@@ -258,7 +259,7 @@ class Jira4U {
                     },
                     data: requestData,
                     url: self.jiraRestApiUrlIssue.concat("/", timeEntry.workDescription.issueKey, "/worklog"),
-                    onload: resolve,
+                    onload: responseCallback.onResponse.bind(responseCallback),
                     onerror: reject
                 }
             );
@@ -324,7 +325,7 @@ class Toggl {
             self._getTsr(interval, function (e) {
                 let timeEntries = JSON.parse(e.responseText);
                 let loadTsrDtoOut = [];
-                for(const entry of timeEntries) {
+                for (const entry of timeEntries) {
                     loadTsrDtoOut.push(new TimeEntry(entry));
                 }
                 resolve(loadTsrDtoOut);
@@ -522,7 +523,7 @@ class TimeEntry {
         this.stop = togglTimeEntry.stop;
         this.pid = togglTimeEntry.pid;
         this.duration = togglTimeEntry.duration;
-        if(togglTimeEntry.description) {
+        if (togglTimeEntry.description) {
             this.description = togglTimeEntry.description.trim();
             this.workDescription = WorkDescription.parse(togglTimeEntry.description.trim());
         }
@@ -558,8 +559,8 @@ class ReportStatus {
         this.jiraFailures = [];
         this.jiraReported = 0;
         this.jiraRelated = 0;
-        for(const entry of timeEntries) {
-            if(entry.isJiraTask()) {
+        for (const entry of timeEntries) {
+            if (entry.isJiraTask()) {
                 this.jiraRelated++;
             }
         }
@@ -663,14 +664,14 @@ class ReportStatus {
             try {
                 await plus4uWtm.logWorkItem(timeEntry);
             } catch (e) {
-                if(e.responseText) {
+                if (e.responseText) {
                     const dtoOut = JSON.parse(e.responseText);
-                    if(dtoOut.uuAppErrorMap["uu-specialistwtm-main/createTimesheetItem/overlappingItemExists"] !== undefined) {
+                    if (dtoOut.uuAppErrorMap["uu-specialistwtm-main/createTimesheetItem/overlappingItemExists"] !== undefined) {
                         // If the item overlaps an existing one, consider it already reported and set as success. Also if it is related to Jira, consider it reported too.
                         // TODO this might be improved to check duration and description and also to check if it is reported in Jira or not
                         console.warn(`Entry already exists in Plus4U. ${e.responseText}`);
                         status.addPlus4u();
-                        if(timeEntry.isJiraTask()) {
+                        if (timeEntry.isJiraTask()) {
                             status.addJira();
                         }
                     } else {
@@ -684,12 +685,17 @@ class ReportStatus {
                 return;
             }
             status.addPlus4u();
-            if(timeEntry.isJiraTask()) {
+            if (timeEntry.isJiraTask()) {
                 try {
                     await jira.logWork(timeEntry);
                 } catch (e) {
-                    console.error(`JIRA error: ${e}.`);
-                    status.addJira(e);
+                    if (e.responseText) {
+                        console.error(`Jira code: ${e.status}, response: ${e.responseText}`);
+                        status.addJira(e.responseText);
+                    } else {
+                        console.error(`Jira error: ${e}`);
+                        status.addJira(e);
+                    }
                     return;
                 }
                 status.addJira();
