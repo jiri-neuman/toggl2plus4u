@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Toggl integration with Plus4U and Jira
 // @namespace    https://github.com/jiri-neuman/toggl2plus4u
-// @version      0.5.1
+// @version      0.5.2
 // @description  Integrates Toggl with Plus4U Work Time Management and Jira
 // @author       Jiri Neuman
 // @match        https://toggl.com/app/timer
@@ -21,23 +21,23 @@ GM_addStyle(`
     #uniExtToolbar {
         margin: 85px 0 0 15px;
     }
-    
+
     #uniExtToolbar .inputPanel {
       display: inline-flex;
     }
-    
+
     #uniExtToolbar .inputPanel div {
       margin: 0 5px;
     }
-    
+
     #uniExtToolbar .buttonsPanel {
       display: flex;
     }
-    
+
     #uniExtToolbar .buttonsPanel div {
       margin: 0 5px 5px 0;
     }
-    
+
     #uniExtToolbar .buttonsPanel button {
       margin: 10px 0 0 10px;
       padding: 3px;
@@ -45,17 +45,17 @@ GM_addStyle(`
       background-color: grey;
       z-index: 1000;
     }
-    
+
     #uniExtToolbar .error {
       color: red;
       font-weight: bold;
     }
-    
+
     #uniExtToolbar .success {
       color: green;
       font-weight: bold;
     }
-    
+
     #uniExtToolbar .warning {
       color: orange;
       font-weight: bold;
@@ -587,8 +587,8 @@ class ReportStatus {
 
     printProgress() {
         $("#uniExtStatus").html(`
-            <div><strong>Total entries: ${this.totalEntries}</strong> 
-            <br/><strong>Plus4U: </strong><span class=${this.plus4uReported === this.totalEntries ? "success" : ""}>${this.plus4uReported} reported </span> (<span class=${this.plus4uFailures.length > 0 ? "error" : ""}>${this.plus4uFailures.length} failed </span>) 
+            <div><strong>Total entries: ${this.totalEntries}</strong>
+            <br/><strong>Plus4U: </strong><span class=${this.plus4uReported === this.totalEntries ? "success" : ""}>${this.plus4uReported} reported </span> (<span class=${this.plus4uFailures.length > 0 ? "error" : ""}>${this.plus4uFailures.length} failed </span>)
             <br/><strong>Jira: </strong><span class=${this.jiraReported === this.jiraRelated ? "success" : ""}>${this.jiraReported} reported </span> out of ${this.jiraRelated} related. (<span class=${this.jiraFailures.length > 0 ? "error" : ""}>${this.jiraFailures.length} failed</span>).
         </div>`);
     };
@@ -626,7 +626,7 @@ class ReportStatus {
                 <div><label for="uniExtFrom">From:</label><input type="date" id="uniExtFrom" value=${DateUtils.toHtmlFormat(thisWeek.start)} /></div><div><label for="uniExtTo">To:</label><input type="date" id="uniExtTo" value=${DateUtils.toHtmlFormat(thisWeek.end)} /></div><div id="uniExtToSummary"></div><div id="uniExtStatus"></div></div>`;
         const buttons = `<div class="buttonsPanel"><button id="uniExtBtnRound">Round times</button><button id="uniExtBtnReport">Report</button></div>`;
         const toolbar = `<div id="uniExtToolbar">${inputPanel} ${buttons}</div>`;
-        $(".right-pane-inner .react-viewport-container").prepend(toolbar);
+        $(".right-pane-inner #overlay-region").append(toolbar);
 
         document.getElementById("uniExtBtnRound").addEventListener("click", roundTsrReport, false);
         document.getElementById("uniExtBtnReport").addEventListener("click", reportWork, false);
@@ -670,9 +670,9 @@ class ReportStatus {
                         // If the item overlaps an existing one, consider it already reported and set as success. Also if it is related to Jira, consider it reported too.
                         // TODO this might be improved to check duration and description and also to check if it is reported in Jira or not
                         console.warn(`Entry already exists in Plus4U. ${e.responseText}`);
-                        status.addPlus4u();
-                        if (timeEntry.isJiraTask()) {
-                            status.addJira();
+                            status.addPlus4u();
+                            if (timeEntry.isJiraTask()) {
+                                status.addJira();
                         }
                     } else {
                         console.error(`Plus4U code: ${e.status}, response: ${e.responseText}`);
