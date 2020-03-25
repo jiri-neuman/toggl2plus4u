@@ -11,7 +11,7 @@
 // @grant        GM_deleteValue
 // @grant        GM_addStyle
 // @connect      plus4u.net
-// @connect      jira.unicorn.eu
+// @connect      jira.unicorn.com
 // @connect      toggl.com
 // @require      http://code.jquery.com/jquery-2.1.4.min.js
 // @require      https://code.jquery.com/ui/1.12.1/jquery-ui.js
@@ -200,7 +200,7 @@ class Plus4uWtm {
 class Jira4U {
 
   constructor() {
-    this.jiraUrl = 'https://jira.unicorn.eu';
+    this.jiraUrl = 'https://jira.unicorn.com';
     this.jiraBrowseIssue = this.jiraUrl + "/browse";
     this.jiraRestApiUrl = this.jiraUrl + '/rest/api/2';
     this.jiraRestApiUrlIssue = this.jiraRestApiUrl + '/issue';
