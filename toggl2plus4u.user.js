@@ -1,11 +1,11 @@
 // ==UserScript==
 // @name         Toggl integration with Plus4U and Jira
 // @namespace    https://github.com/jiri-neuman/toggl2plus4u
-// @version      0.5.5
+// @version      0.5.6
 // @description  Integrates Toggl with Plus4U Work Time Management and Jira
 // @author       Jiri Neuman
 // @match        https://toggl.com/app/timer*
-// @match        https://*.toggl.com/app/timer*
+// @match        https://*.toggl.com/timer*
 // @grant        GM_xmlhttpRequest
 // @grant        GM_setValue
 // @grant        GM_getValue
