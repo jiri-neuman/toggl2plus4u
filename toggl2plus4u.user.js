@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Toggl integration with Plus4U and Jira
 // @namespace    https://github.com/jiri-neuman/toggl2plus4u
-// @version      0.5.6
+// @version      0.5.7
 // @description  Integrates Toggl with Plus4U Work Time Management and Jira
 // @author       Jiri Neuman
 // @match        https://toggl.com/app/timer*
@@ -149,14 +149,16 @@ class Plus4uWtm {
         self._initializing = true;
         console.log(`Fetching Plus4U authentication token.`);
         // noinspection JSUnresolvedFunction
+        const oidcDomain = "https://uuidentity.plus4u.net";
+        const oidcUri = oidcDomain + "/uu-oidc-maing02/bb977a99f4cc4c37a2afce3fd599d0a7/oidc/auth?response_type=id_token%20token&redirect_uri=https%3A%2F%2Fuuos9.plus4u.net%2Fuu-contentwidgetsg02-uu5stringwidget%2F99923616732505139-9ba1fa2d23a14378aef39d651fb19b14%2Foidc%2Fcallback&client_id=9ba1fa2d23a14378aef39d651fb19b14&scope=openid%20https%3A%2F%2Fuuos9.plus4u.net%2Fuu-specialistwtmg01-main%2F99923616732453117-8031926f783d4aaba733af73c1974840&prompt=none";
         GM_xmlhttpRequest(
             {
               method: 'GET',
               headers: {
-                "Origin": "https://oidc.plus4u.net",
-                "Referer": "https://oidc.plus4u.net/uu-oidcg01-main/99923616732452117-4f06dafc03cb4c7f8c155aa53f0e86be/oauth2?scope=openid&response_type=id_token&prompt=none&redirect_uri=https%3A%2F%2Fplus4u.net%2Fues%2Foauth-login-callback"
+                "Origin": oidcDomain,
+                "Referer": oidcUri
               },
-              url: "https://oidc.plus4u.net/uu-oidcg01-main/99923616732452117-4f06dafc03cb4c7f8c155aa53f0e86be/oauth2?scope=openid&response_type=id_token&prompt=none&redirect_uri=https%3A%2F%2Fplus4u.net%2Fues%2Foauth-login-callback",
+              url: oidcUri,
               onload: function (e) {
                 self._extractToken(e);
                 self._initializing = false;
