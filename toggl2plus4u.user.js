@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Toggl integration with Plus4U and Jira
 // @namespace    https://github.com/jiri-neuman/toggl2plus4u
-// @version      0.5.7
+// @version      0.5.8
 // @description  Integrates Toggl with Plus4U Work Time Management and Jira
 // @author       Jiri Neuman
 // @match        https://toggl.com/app/timer*
@@ -320,10 +320,13 @@ class WorkDescription {
 class Toggl {
 
   constructor(apiKey) {
+    const storageKey = Object.keys(window.sessionStorage).find(k => k.match("api/.*/me"));
+    console.info(`Loading apiKey from session storage ${storageKey}.`);
     if (apiKey === null || apiKey === undefined) {
-      apiKey = "";
+      apiKey = JSON.parse(window.sessionStorage.getItem(storageKey)).api_token;
+      console.info(`ApiKey loaded: "${apiKey}".`);
     }
-    this._apiKey = apiKey;
+    this._apiKey = btoa(apiKey+":api_token");
   }
 
   loadTsr(interval) {
@@ -609,7 +612,7 @@ class ReportStatus {
   'use strict';
 
   const plus4uWtm = new Plus4uWtm();
-  let toggl = new Toggl(GM_getValue("uniTogglApiKey"));
+  let toggl = new Toggl();
   const jira = new Jira4U();
   let status = new ReportStatus();
 
@@ -634,8 +637,7 @@ class ReportStatus {
 
     const thisWeek = DateUtils.getThisWeek();
     const configPanel = `<div class="inputPanel">
-                <div><label for="uniTogglApiKey">Toggle BASIC auth value:</label><input type="password" value="${toggl._apiKey}" id="uniTogglApiKey" placeholder="Enter your BASIC auth value" /></div>
-                <div class="buttonsPanel"><button id="uniExtBtnConfigSave">Save</button></div>
+
                 </div>`;
     const inputPanel = `<div class="inputPanel">
                 <div><label for="uniExtFrom">From:</label><input type="date" id="uniExtFrom" value=${DateUtils.toHtmlFormat(
@@ -649,8 +651,6 @@ class ReportStatus {
     document.getElementById("uniExtBtnReport").addEventListener("click", reportWork, false);
     document.getElementById("uniExtFrom").addEventListener("change", printReportSummary, false);
     document.getElementById("uniExtTo").addEventListener("change", printReportSummary, false);
-    document.getElementById("uniTogglApiKey").addEventListener("change", applyConfig, false);
-    document.getElementById("uniExtBtnConfigSave").addEventListener("click", saveConfig, false);
 
     console.info("Toolbar init finished");
     await printReportSummary();
@@ -673,21 +673,6 @@ class ReportStatus {
     }
     $("#uniExtToSummary").html(
         `<div><strong>${Math.round(sum / 60 / 60 * 100) / 100} </strong> hours will be rounded to <strong>${Math.round(roundedSum / 60 / 60 * 100) / 100} </strong> hours</div>`);
-  };
-
-  let applyConfig = async function () {
-    let apiKey = document.querySelector("#uniTogglApiKey").value;
-    toggl = new Toggl(apiKey);
-    await printReportSummary();
-  };
-
-  let saveConfig = async function () {
-    let apiKey = document.querySelector("#uniTogglApiKey").value;
-    if (apiKey === "") {
-      GM_deleteValue("uniTogglApiKey");
-    } else {
-      GM_setValue("uniTogglApiKey", apiKey);
-    }
   };
 
   let reportWork = async function () {
