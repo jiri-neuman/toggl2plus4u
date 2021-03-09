@@ -744,6 +744,30 @@ class ReportStatus {
   }
 }
 
+class ScriptLog {
+
+  constructor(textArea) {
+    this.textArea = textArea;
+  }
+
+  info(message) {
+    this.log("INFO", message);
+  }
+
+  error(message) {
+    this.log("ERROR", message);
+  }
+
+  log(level, message) {
+    this.textArea.value = `${new Date().toLocaleTimeString()} ${level}: ${message}\n${this.textArea.value}`;
+  }
+
+  clear() {
+    this.textArea.value = "";
+  }
+
+}
+
 (async function () {
   'use strict';
 
@@ -752,6 +776,7 @@ class ReportStatus {
   const plus4uWtm = new Plus4uWtm();
   const toggl = new Toggl();
   const jira = new Jira4U();
+  let appLog;
   let status = new ReportStatus();
   let autoRound = GM_getValue(AUTO_RND_ID) ? GM_getValue(AUTO_RND_ID) : false;
   console.log(`Automatic rounding: ${autoRound}`);
@@ -785,24 +810,28 @@ class ReportStatus {
     const inputPanel = `<div class="inputPanel">
                 <div><label for="uniExtFrom">From:</label><input type="date" id="uniExtFrom" value=${DateUtils.toHtmlFormat(
         thisWeek.start)} /></div><div><label for="uniExtTo">To:</label><input type="date" id="uniExtTo" value=${DateUtils.toHtmlFormat(
-        thisWeek.end)} /></div><div id="uniExtToSummary"></div><div id="uniExtStatus"></div></div>`;
+        thisWeek.end)} /></div><div id="uniExtToSummary"></div><div id="uniExtStatus"></div><div id="uniExtLogs"><textarea id="uniExtAppLogArea" name="AppLog" rows="5" cols="100" disabled></textarea></div></div>`;
     const buttons = `<div class="buttonsPanel"><button id="uniExtBtnRound">Round times</button><button id="uniExtBtnReport">Report</button></div>`;
     const toolbar = `<div id="uniExtToolbar">${configPanel} <br/> ${inputPanel} ${buttons}</div><div id="uniExtMessages"></div>`;
     $(".right-pane-inner .content-wrapper").append(toolbar);
 
     document.getElementById("uniExtBtnRound").addEventListener("click", roundTsrReport, false);
     document.getElementById("uniExtBtnReport").addEventListener("click", reportWork, false);
-    document.getElementById("uniExtFrom").addEventListener("change", printReportSummary, false);
-    document.getElementById("uniExtTo").addEventListener("change", printReportSummary, false);
+    document.getElementById("uniExtFrom").addEventListener("change", onReportDataChange, false);
+    document.getElementById("uniExtTo").addEventListener("change", onReportDataChange, false);
     document.getElementById("uniAutoRnd").addEventListener("click", saveAutoRoundingCfg, false);
 
-    console.info("Toolbar init finished");
+    appLog = new ScriptLog(document.getElementById("uniExtAppLogArea"));
+    appLog.info("Toolbar initialized.");
     await printReportSummary();
   };
 
+  let onReportDataChange = async function() {
+    await printReportSummary();
+  }
+
   let printReportSummary = async function (timeEntries) {
-    console.info(`Printing report summary.`);
-    if (!timeEntries) {
+    if (!Array.isArray(timeEntries)) {
       timeEntries = await loadAllReports();
     }
     status.reset(timeEntries);
@@ -827,39 +856,44 @@ class ReportStatus {
             will be rounded to <strong>${Math.round(roundedSum / 60 / 60 * 100) / 100} </strong> hours.</div>
          <br />${emptyItemsMsg}
       </div>`);
-    console.info(`Printing report summary finished.`);
+    appLog.info(`Report summary has been updated.`);
   };
 
   let loadAllReports = async function () {
     // For reporting, we need only finished tasks
-    const timeEntries = (await toggl.loadTsr(getInterval())).filter(te => te.isFinished());
-    const plus4uEntries = await plus4uWtm.loadTsr(getInterval());
-    console.log(timeEntries);
-    console.log(plus4uEntries);
-    for (const te of timeEntries) {
-      if (plus4uEntries.some(uute => uute.equals(te))) {
-        te.setLoggedToPlus4u();
-      }
-      if (te.isJiraTask()) {
-        const jiraTaskWorklogs = await jira.loadIssueWorklog(te.workDescription.issueKey);
-        if (jiraTaskWorklogs.some(jirate => jirate.equals(te))) {
-          te.setLoggedToJira();
+    try {
+      appLog.info(`Loading time entries from Toggl.`);
+      const timeEntries = (await toggl.loadTsr(getInterval())).filter(te => te.isFinished());
+      appLog.info(`Loading existing time entries from Plus4u.`);
+      const plus4uEntries = await plus4uWtm.loadTsr(getInterval());
+      appLog.info(`Loaded ${timeEntries.length} entries from Toggl and ${plus4uEntries.length} from Plus4U.`);
+      for (const te of timeEntries) {
+        if (plus4uEntries.some(uute => uute.equals(te))) {
+          te.setLoggedToPlus4u();
+        }
+        if (te.isJiraTask()) {
+          const jiraTaskWorklogs = await jira.loadIssueWorklog(te.workDescription.issueKey);
+          if (jiraTaskWorklogs.some(jirate => jirate.equals(te))) {
+            te.setLoggedToJira();
+          }
         }
       }
+      return timeEntries;
+    } catch (e) {
+      appLog.error(`Cannot load time reports: ${e.message}. Please see console for details.`);
     }
-    return timeEntries;
   }
 
   let reportWork = async function () {
     $("#uniExtMessages").html("");
     const timeEntries = await loadAllReports();
     status.reset(timeEntries);
-    console.info(`Reporting ${timeEntries.length} items.`);
+    appLog.info(`Reporting ${timeEntries.length} items.`);
     for (const timeEntry of timeEntries) {
       await reportItem(timeEntry);
     }
+    appLog.info(`Reporting finished.`);
     await printReportSummary(timeEntries);
-    console.info(`Reporting finished.`);
   };
 
   async function reportItem(entry) {
@@ -879,10 +913,12 @@ class ReportStatus {
           console.error(`Plus4U code: ${e.status}, response: ${e.responseText}`);
           status.addPlus4u(e.responseText);
           entry.setLoggedToPlus4u(e.responseText);
+          appLog.error(`Cannot log to plus4u: ${e.responseText}.`);
         } else {
           console.error(`Plus4U error: ${e}`);
           status.addPlus4u(e);
           entry.setLoggedToPlus4u(e);
+          appLog.error(`Cannot log to plus4u: ${e}.`);
         }
       }
     }
@@ -896,9 +932,11 @@ class ReportStatus {
         if (e.responseText) {
           console.error(`Jira code: ${e.status}, response: ${e.responseText}`);
           status.addJira(e.responseText);
+          appLog.error(`Cannot log to Jira: ${e.responseText}.`);
         } else {
           console.error(`Jira error: ${e}`);
           status.addJira(e);
+          appLog.error(`Cannot log to Jira: ${e}.`);
         }
       }
     }
@@ -917,7 +955,7 @@ class ReportStatus {
   };
 
   let roundIfNeeded = async function (timeEntry) {
-    if(!timeEntry.isRounded()) {
+    if (!timeEntry.isRounded()) {
       await toggl.roundTimeEntry(timeEntry);
     }
   }
