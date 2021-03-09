@@ -867,6 +867,7 @@ class ScriptLog {
       appLog.info(`Loading existing time entries from Plus4u.`);
       const plus4uEntries = await plus4uWtm.loadTsr(getInterval());
       appLog.info(`Loaded ${timeEntries.length} entries from Toggl and ${plus4uEntries.length} from Plus4U.`);
+      // Reporting one by one - // reporting is not handled correctly by Jira (https://community.atlassian.com/t5/Jira-Software-questions/Time-Tracking-quot-Logged-quot-shows-wrong-value/qaq-p/647203)
       for (const te of timeEntries) {
         if (plus4uEntries.some(uute => uute.equals(te))) {
           te.setLoggedToPlus4u();
