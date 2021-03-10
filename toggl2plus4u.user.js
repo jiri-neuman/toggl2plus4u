@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Toggl integration with Plus4U and Jira
 // @namespace    https://github.com/jiri-neuman/toggl2plus4u
-// @version      0.6.0
+// @version      0.6.1
 // @description  Integrates Toggl with Plus4U Work Time Management and Jira
 // @author       Jiri Neuman
 // @match        https://toggl.com/app/timer*
@@ -945,7 +945,7 @@ class ScriptLog {
 
   let roundTsrReport = async function (timeEntries) {
     let interval = getInterval();
-    if (!timeEntries) {
+    if (!Array.isArray(timeEntries)) {
       console.warn(`Time entries not provided on input. Loading time entries. This may be suboptimal for performance.`);
       timeEntries = await toggl.loadTsr(interval);
     }
