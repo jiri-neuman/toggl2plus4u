@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Toggl integration with Plus4U and Jira
 // @namespace    https://github.com/jiri-neuman/toggl2plus4u
-// @version      0.6.1
+// @version      0.6.2
 // @description  Integrates Toggl with Plus4U Work Time Management and Jira
 // @author       Jiri Neuman
 // @match        https://toggl.com/app/timer*
@@ -366,6 +366,7 @@ class Toggl {
       console.info(`ApiKey loaded: "${apiKey}".`);
     }
     this._apiKey = btoa(apiKey + ":api_token");
+    this._url = "https://api.track.toggl.com"
   }
 
   loadTsr(interval) {
@@ -410,7 +411,7 @@ class Toggl {
             "Content-Type": "application/json",
             "Authorization": `Basic ${self._apiKey}`
           },
-          url: `https://www.toggl.com/api/v8/time_entries?start_date=${interval.start}&end_date=${interval.end}`,
+          url: `${self._url}/api/v8/time_entries?start_date=${interval.start}&end_date=${interval.end}`,
           onload: Toggl._getRetryingFunction(_onSuccess, self._getTsr, [interval, onSuccess]),
           onerror: onError
         },
@@ -428,7 +429,7 @@ class Toggl {
             "Content-Type": "application/json",
             "Authorization": `Basic ${this._apiKey}`
           },
-          url: `https://www.toggl.com/api/v8/projects/${projectId}`,
+          url: `${this._url}/api/v8/projects/${projectId}`,
           onload: Toggl._getRetryingFunction(_onSuccess, this._getProject.bind(this), [projectId, onSuccess]),
           onerror: console.error
         },
@@ -458,7 +459,7 @@ class Toggl {
               "Authorization": `Basic ${self._apiKey}`
             },
             data: requestData,
-            url: `https://www.toggl.com/api/v8/time_entries/${timeEntry.id}`,
+            url: `${self._url}/api/v8/time_entries/${timeEntry.id}`,
             onload: Toggl._getRetryingFunction(resolve, self.roundTimeEntry.bind(self), [timeEntry]),
             onerror: reject
           }
