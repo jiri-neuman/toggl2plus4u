@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Toggl integration with Plus4U and Jira
 // @namespace    https://github.com/jiri-neuman/toggl2plus4u
-// @version      0.6.2
+// @version      0.6.3
 // @description  Integrates Toggl with Plus4U Work Time Management and Jira
 // @author       Jiri Neuman
 // @match        https://toggl.com/app/timer*
@@ -359,14 +359,33 @@ class WorkDescription {
 class Toggl {
 
   constructor(apiKey) {
-    const storageKey = Object.keys(window.sessionStorage).find(k => k.match("api/.*/me"));
-    console.info(`Loading apiKey from session storage ${storageKey}.`);
-    if (apiKey === null || apiKey === undefined) {
-      apiKey = JSON.parse(window.sessionStorage.getItem(storageKey)).api_token;
-      console.info(`ApiKey loaded: "${apiKey}".`);
+    if (apiKey !== null && apiKey !== undefined) {
+      this._apiKey = btoa(apiKey + ":api_token");
     }
-    this._apiKey = btoa(apiKey + ":api_token");
     this._url = "https://api.track.toggl.com"
+  }
+
+  static getApiKeyFromStorage() {
+    return Object.keys(window.sessionStorage).find(k => k.match("api/.*/me"));
+  }
+
+  _getApiKey(apiKey) {
+    if (!this._apiKey) {
+      const storageKey = Toggl.getApiKeyFromStorage();
+      console.info(`Loading apiKey from session storage ${storageKey}.`);
+      if (storageKey && (apiKey === null || apiKey === undefined)) {
+        // load apiKey from session storage, if possible
+        apiKey = JSON.parse(window.sessionStorage.getItem(storageKey)).api_token;
+        console.info(`ApiKey loaded: "${apiKey}".`);
+      }
+      if (apiKey !== null && apiKey !== undefined) {
+        this._apiKey = btoa(apiKey + ":api_token");
+      }
+    }
+    if(!this._apiKey) {
+      throw new Error("There is no API Key for Toggl!");
+    }
+    return this._apiKey;
   }
 
   loadTsr(interval) {
@@ -409,7 +428,7 @@ class Toggl {
           method: "GET",
           headers: {
             "Content-Type": "application/json",
-            "Authorization": `Basic ${self._apiKey}`
+            "Authorization": `Basic ${self._getApiKey()}`
           },
           url: `${self._url}/api/v8/time_entries?start_date=${interval.start}&end_date=${interval.end}`,
           onload: Toggl._getRetryingFunction(_onSuccess, self._getTsr, [interval, onSuccess]),
@@ -427,7 +446,7 @@ class Toggl {
           method: "GET",
           headers: {
             "Content-Type": "application/json",
-            "Authorization": `Basic ${this._apiKey}`
+            "Authorization": `Basic ${this._getApiKey()}`
           },
           url: `${this._url}/api/v8/projects/${projectId}`,
           onload: Toggl._getRetryingFunction(_onSuccess, this._getProject.bind(this), [projectId, onSuccess]),
@@ -456,7 +475,7 @@ class Toggl {
             method: "PUT",
             headers: {
               "Content-Type": "application/json",
-              "Authorization": `Basic ${self._apiKey}`
+              "Authorization": `Basic ${self._getApiKey()}`
             },
             data: requestData,
             url: `${self._url}/api/v8/time_entries/${timeEntry.id}`,
@@ -793,7 +812,7 @@ class ScriptLog {
   };
 
   let isPageReady = function () {
-    return $(".right-pane-inner").length;
+    return $(".right-pane-inner").length && Toggl.getApiKeyFromStorage();
   };
 
   let saveAutoRoundingCfg = function (ev) {
@@ -827,7 +846,7 @@ class ScriptLog {
     await printReportSummary();
   };
 
-  let onReportDataChange = async function() {
+  let onReportDataChange = async function () {
     await printReportSummary();
   }
 
