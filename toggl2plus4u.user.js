@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Toggl integration with Plus4U and Jira
 // @namespace    https://github.com/jiri-neuman/toggl2plus4u
-// @version      0.6.3
+// @version      0.7.0
 // @description  Integrates Toggl with Plus4U Work Time Management and Jira
 // @author       Jiri Neuman
 // @match        https://toggl.com/app/timer*
@@ -702,6 +702,12 @@ class TimeEntry {
         && this.stop.getTime() === this.roundedStop.getTime();
   }
 
+  copyJiraTaskToCategory() {
+    if (this.isJiraTask()) {
+      this.category = this.workDescription.issueKey;
+    }
+  }
+
 }
 
 class ReportStatus {
@@ -788,17 +794,45 @@ class ScriptLog {
 
 }
 
+class Storage {
+  static AUTO_RND_ID = "uniAutoRnd";
+  static CP_JIRA_KEY_ID = "uniCpJiraKey";
+
+  static getBoolean(key, defautlValue = false) {
+    return GM_getValue(key) ? GM_getValue(key) : defautlValue;
+  }
+
+  static save(key, value) {
+    GM_setValue(key, value);
+  }
+}
+
+class StoredValue {
+  constructor(key) {
+    this.value = Storage.getBoolean(key);
+    this.key = key;
+  }
+
+  getValue() {
+    return this.value;
+  }
+
+  save(ev) {
+    this.value = ev.target.checked;
+    Storage.save(this.key, this.value);
+  }
+}
+
 (async function () {
   'use strict';
-
-  const AUTO_RND_ID = "uniAutoRnd";
 
   const plus4uWtm = new Plus4uWtm();
   const toggl = new Toggl();
   const jira = new Jira4U();
   let appLog;
   let status = new ReportStatus();
-  let autoRound = GM_getValue(AUTO_RND_ID) ? GM_getValue(AUTO_RND_ID) : false;
+  let autoRound = new StoredValue(Storage.AUTO_RND_ID);
+  let cpJiraKey = new StoredValue(Storage.CP_JIRA_KEY_ID);
   console.log(`Automatic rounding: ${autoRound}`);
   let initPage = async function () {
     console.info("Initializing Toggl2plus4u extension.");
@@ -815,17 +849,13 @@ class ScriptLog {
     return $(".right-pane-inner").length && Toggl.getApiKeyFromStorage();
   };
 
-  let saveAutoRoundingCfg = function (ev) {
-    const newValue = ev.target.checked;
-    GM_setValue(AUTO_RND_ID, newValue);
-  };
-
   let addToolbar = async function () {
     console.info("Adding toolbar to the page.");
 
     const thisWeek = DateUtils.getThisWeek();
     const configPanel = `<div class="inputPanel">
-                  <div><label for="uniAutoRnd" style="display: inline-flex">Round time automatically: </label><input type="checkbox" ${autoRound ? "checked" : ""} id="uniAutoRnd" style="display: inline-flex" /></div>
+                  <div><label for="uniAutoRnd" style="display: inline-flex">Round time automatically: </label><input type="checkbox" ${autoRound.getValue() ? "checked" : ""} id="uniAutoRnd" style="display: inline-flex" />
+                  <label for="uniCpJiraKey" style="display: inline-flex">Copy JIRA key as category: </label><input type="checkbox" ${cpJiraKey.getValue() ? "checked" : ""} id="uniCpJiraKey" style="display: inline-flex" /></div>
                 </div>`;
     const inputPanel = `<div class="inputPanel">
                 <div><label for="uniExtFrom">From:</label><input type="date" id="uniExtFrom" value=${DateUtils.toHtmlFormat(
@@ -839,7 +869,8 @@ class ScriptLog {
     document.getElementById("uniExtBtnReport").addEventListener("click", reportWork, false);
     document.getElementById("uniExtFrom").addEventListener("change", onReportDataChange, false);
     document.getElementById("uniExtTo").addEventListener("change", onReportDataChange, false);
-    document.getElementById("uniAutoRnd").addEventListener("click", saveAutoRoundingCfg, false);
+    document.getElementById("uniAutoRnd").addEventListener("click", autoRound.save, false);
+    document.getElementById("uniCpJiraKey").addEventListener("click", cpJiraKey.save, false);
 
     appLog = new ScriptLog(document.getElementById("uniExtAppLogArea"));
     appLog.info("Toolbar initialized.");
@@ -918,10 +949,13 @@ class ScriptLog {
   };
 
   async function reportItem(entry) {
-    if (autoRound) {
+    if (autoRound.getValue()) {
       console.info(`Auto rounding is enabled. Rounding item.`);
       await roundIfNeeded(entry);
       console.info(`Rounding of item finished.`);
+    }
+    if (cpJiraKey.getValue()) {
+      entry.copyJiraTaskToCategory();
     }
     entry.setTogglProject(await toggl.loadProject(entry));
     if (!entry.isLoggedToPlus4u()) {
