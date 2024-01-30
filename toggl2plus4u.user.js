@@ -1,11 +1,11 @@
 // ==UserScript==
 // @name         Toggl integration with Plus4U and Jira
 // @namespace    https://github.com/jiri-neuman/toggl2plus4u
-// @version      0.7.0
+// @version      0.7.1
 // @description  Integrates Toggl with Plus4U Work Time Management and Jira
 // @author       Jiri Neuman
 // @match        https://toggl.com/app/timer*
-// @match        https://*.toggl.com/timer*
+// @match        https://*.toggl.com/*
 // @grant        GM_xmlhttpRequest
 // @grant        GM_setValue
 // @grant        GM_getValue
@@ -863,14 +863,14 @@ class StoredValue {
         thisWeek.end)} /></div><div id="uniExtToSummary"></div><div id="uniExtStatus"></div><div id="uniExtLogs"><textarea id="uniExtAppLogArea" name="AppLog" rows="5" cols="100" disabled></textarea></div></div>`;
     const buttons = `<div class="buttonsPanel"><button id="uniExtBtnRound">Round times</button><button id="uniExtBtnReport">Report</button></div>`;
     const toolbar = `<div id="uniExtToolbar">${configPanel} <br/> ${inputPanel} ${buttons}</div><div id="uniExtMessages"></div>`;
-    $(".right-pane-inner .content-wrapper").append(toolbar);
+    $(".right-pane-inner .content-wrapper").prepend(toolbar);
 
     document.getElementById("uniExtBtnRound").addEventListener("click", roundTsrReport, false);
     document.getElementById("uniExtBtnReport").addEventListener("click", reportWork, false);
     document.getElementById("uniExtFrom").addEventListener("change", onReportDataChange, false);
     document.getElementById("uniExtTo").addEventListener("change", onReportDataChange, false);
-    document.getElementById("uniAutoRnd").addEventListener("click", autoRound.save, false);
-    document.getElementById("uniCpJiraKey").addEventListener("click", cpJiraKey.save, false);
+    document.getElementById("uniAutoRnd").addEventListener("click", autoRound.save.bind(autoRound), false);
+    document.getElementById("uniCpJiraKey").addEventListener("click", cpJiraKey.save.bind(cpJiraKey), false);
 
     appLog = new ScriptLog(document.getElementById("uniExtAppLogArea"));
     appLog.info("Toolbar initialized.");
