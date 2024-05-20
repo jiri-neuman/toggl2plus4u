@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Toggl integration with Plus4U and Jira
 // @namespace    https://github.com/jiri-neuman/toggl2plus4u
-// @version      0.7.1
+// @version      0.7.2
 // @description  Integrates Toggl with Plus4U Work Time Management and Jira
 // @author       Jiri Neuman
 // @match        https://toggl.com/app/timer*
@@ -358,34 +358,60 @@ class WorkDescription {
 
 class Toggl {
 
-  constructor(apiKey) {
-    if (apiKey !== null && apiKey !== undefined) {
-      this._apiKey = btoa(apiKey + ":api_token");
-    }
+  constructor() {
+    this._me = undefined;
+    this._initializing = false;
     this._url = "https://api.track.toggl.com"
   }
 
-  static getApiKeyFromStorage() {
-    return Object.keys(window.sessionStorage).find(k => k.match("api/.*/me"));
+  _fetchMe() {
+    const self = this;
+    return new Promise(function (resolve, reject) {
+      if (self._me) {
+        console.log("Toggle user info is ready.");
+        resolve(self._me);
+      }
+      if (self._initializing) {
+        console.log("Toggle user info is already being fetched.");
+        self._waitForResponse(resolve, reject);
+      } else {
+        self._initializing = true;
+        console.log(`Fetching Toggl user info.`);
+        // noinspection JSUnresolvedFunction
+        const uri = self._url.concat("/api/v9/me")
+        GM_xmlhttpRequest(
+          {
+            method: 'GET',
+            headers: {"Accept": "application/json"},
+            url: uri,
+            onload: function (e) {
+              self._me = JSON.parse(e.responseText);
+              self._initializing = false;
+              resolve(self._me);
+            },
+            onerror: function (e) {
+              self._initializing = false;
+              reject(e);
+            }
+          }
+        );
+      }
+    });
   }
 
-  _getApiKey(apiKey) {
-    if (!this._apiKey) {
-      const storageKey = Toggl.getApiKeyFromStorage();
-      console.info(`Loading apiKey from session storage ${storageKey}.`);
-      if (storageKey && (apiKey === null || apiKey === undefined)) {
-        // load apiKey from session storage, if possible
-        apiKey = JSON.parse(window.sessionStorage.getItem(storageKey)).api_token;
-        console.info(`ApiKey loaded: "${apiKey}".`);
-      }
-      if (apiKey !== null && apiKey !== undefined) {
-        this._apiKey = btoa(apiKey + ":api_token");
-      }
+  _waitForResponse(resolve, reject) {
+    const self = this;
+    if (self._me) {
+      resolve(self._me);
     }
-    if(!this._apiKey) {
-      throw new Error("There is no API Key for Toggl!");
+    if (self._initializing) {
+      setTimeout(function () {
+        self._waitForResponse(resolve, reject)
+      }, 100);
+    } else {
+      reject();
     }
-    return this._apiKey;
+
   }
 
   loadTsr(interval) {
@@ -407,7 +433,7 @@ class Toggl {
     return new Promise(function (resolve) {
       if (timeEntry.pid) {
         self._getProject(timeEntry.pid, function (resp) {
-          let project = JSON.parse(resp.responseText).data;
+          let project = JSON.parse(resp.responseText);
           console.info(`Project with ID ${project.id} has name ${project.name}.`);
           resolve(project);
         });
@@ -427,28 +453,29 @@ class Toggl {
         {
           method: "GET",
           headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Basic ${self._getApiKey()}`
+            "Content-Type": "application/json"
           },
-          url: `${self._url}/api/v8/time_entries?start_date=${interval.start}&end_date=${interval.end}`,
+          url: `${self._url}/api/v9/me/time_entries?start_date=${interval.start}&end_date=${interval.end}`,
           onload: Toggl._getRetryingFunction(_onSuccess, self._getTsr, [interval, onSuccess]),
           onerror: onError
         },
     );
   }
 
-  _getProject(projectId, onSuccess) {
+  async _getProject(projectId, onSuccess) {
     let _onSuccess = (typeof onSuccess === 'undefined') ? console.info : onSuccess;
-    console.info(`Fetching project with ID ${projectId} from Toggl.`);
+    let _me = await this._fetchMe();
+    const projectUrl = `${this._url}/api/v9/workspaces/${_me.default_workspace_id}/projects/${projectId}`;
+    console.info(`Fetching project with ID ${projectId} from Toggl URL ${projectUrl}.`);
+    console.debug(JSON.stringify(_me))
     // noinspection JSUnresolvedFunction
     GM_xmlhttpRequest(
         {
           method: "GET",
           headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Basic ${this._getApiKey()}`
+            "Content-Type": "application/json"
           },
-          url: `${this._url}/api/v8/projects/${projectId}`,
+          url: projectUrl,
           onload: Toggl._getRetryingFunction(_onSuccess, this._getProject.bind(this), [projectId, onSuccess]),
           onerror: console.error
         },
@@ -459,12 +486,11 @@ class Toggl {
     const self = this;
     timeEntry.applyRounding();
     return new Promise(function (resolve, reject) {
-      let dtoIn = {};
-      dtoIn.time_entry = {};
-      dtoIn.time_entry.start = timeEntry.roundedStart;
-      dtoIn.time_entry.stop = timeEntry.roundedStop;
-      dtoIn.time_entry.duration = timeEntry.roundedDuration;
-      if (dtoIn.time_entry.duration === 0 || isNaN(dtoIn.time_entry.duration)) {
+      const dtoIn = {};
+      dtoIn.start = timeEntry.roundedStart;
+      dtoIn.stop = timeEntry.roundedStop;
+      dtoIn.duration = timeEntry.roundedDuration;
+      if (dtoIn.duration === 0 || isNaN(dtoIn.duration)) {
         console.warn("Zero duration during rounding. Won't do that! This is probably bug in the script.");
         return;
       }
@@ -474,11 +500,10 @@ class Toggl {
           {
             method: "PUT",
             headers: {
-              "Content-Type": "application/json",
-              "Authorization": `Basic ${self._getApiKey()}`
+              "Content-Type": "application/json"
             },
             data: requestData,
-            url: `${self._url}/api/v8/time_entries/${timeEntry.id}`,
+            url: `${self._url}/api/v9/time_entries/${timeEntry.id}`,
             onload: Toggl._getRetryingFunction(resolve, self.roundTimeEntry.bind(self), [timeEntry]),
             onerror: reject
           }
@@ -721,21 +746,23 @@ class ReportStatus {
   }
 
   reset(timeEntries) {
-    this.totalEntries = timeEntries.length;
     this.plus4uFailures = [];
     this.plus4uReported = 0;
     this.jiraFailures = [];
     this.jiraReported = 0;
     this.jiraRelated = 0;
-    for (const entry of timeEntries) {
-      if (entry.isJiraTask()) {
-        this.jiraRelated++;
-      }
-      if (entry.isLoggedToJira()) {
-        this.jiraReported++;
-      }
-      if (entry.isLoggedToPlus4u()) {
-        this.plus4uReported++;
+    this.totalEntries = Array.isArray(timeEntries) ? timeEntries.length : 0;
+    if(Array.isArray(timeEntries)) {
+      for (const entry of timeEntries) {
+        if (entry.isJiraTask()) {
+          this.jiraRelated++;
+        }
+        if (entry.isLoggedToJira()) {
+          this.jiraReported++;
+        }
+        if (entry.isLoggedToPlus4u()) {
+          this.plus4uReported++;
+        }
       }
     }
     this.printProgress();
@@ -846,7 +873,7 @@ class StoredValue {
   };
 
   let isPageReady = function () {
-    return $(".right-pane-inner").length && Toggl.getApiKeyFromStorage();
+      return $(".right-pane-inner").length;
   };
 
   let addToolbar = async function () {
