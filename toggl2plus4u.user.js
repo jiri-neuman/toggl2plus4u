@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Toggl integration with Plus4U and Jira
 // @namespace    https://github.com/jiri-neuman/toggl2plus4u
-// @version      0.7.3
+// @version      0.7.4
 // @description  Integrates Toggl with Plus4U Work Time Management and Jira
 // @author       Jiri Neuman
 // @match        https://toggl.com/app/timer*
@@ -72,7 +72,7 @@ class Plus4uWtm {
   constructor() {
     this._token = null;
     this._initializing = false;
-    this._wtmUrl = "https://uuos9.plus4u.net/uu-specialistwtmg01-main/99923616732453117-8031926f783d4aaba733af73c1974840";
+    this._wtmUrl = "https://uuapp.plus4u.net/uu-specialistwtmg01-main/99923616732453117-8031926f783d4aaba733af73c1974840";
   }
 
   async logWorkItem(timeEntry) {
@@ -103,7 +103,7 @@ class Plus4uWtm {
             headers: {
               "Content-Type": "application/json",
               "Authorization": `Bearer ${token}`,
-              "Origin": "https://uuos9.plus4u.net",
+              "Origin": "https://uuapp.plus4u.net",
               "Referer": `${wtmUrl}`,
             },
             data: requestData,
@@ -145,7 +145,7 @@ class Plus4uWtm {
           headers: {
             "Content-Type": "application/json",
             "Authorization": `Bearer ${token}`,
-            "Origin": "https://uuos9.plus4u.net",
+            "Origin": "https://uuapp.plus4u.net",
             "Referer": `${wtmUrl}`
           },
           data: JSON.stringify(dtoIn),
@@ -172,7 +172,7 @@ class Plus4uWtm {
         // noinspection JSUnresolvedFunction
         const oidcDomain = "https://uuidentity.plus4u.net";
         const oidcUri = oidcDomain
-            + "/uu-oidc-maing02/bb977a99f4cc4c37a2afce3fd599d0a7/oidc/auth?response_type=id_token%20token&redirect_uri=https%3A%2F%2Fuuos9.plus4u.net%2Fuu-contentwidgetsg02-uu5stringwidget%2F99923616732505139-9ba1fa2d23a14378aef39d651fb19b14%2Foidc%2Fcallback&client_id=9ba1fa2d23a14378aef39d651fb19b14&scope=openid%20https%3A%2F%2Fuuos9.plus4u.net%2Fuu-specialistwtmg01-main%2F99923616732453117-8031926f783d4aaba733af73c1974840&prompt=none";
+            + "/uu-oidc-maing02/bb977a99f4cc4c37a2afce3fd599d0a7/oidc/auth?response_type=id_token%20token&redirect_uri=https%3A%2F%2Fuuapp.plus4u.net%2Fuu-contentwidgetsg02-uu5stringwidget%2F99923616732505139-9ba1fa2d23a14378aef39d651fb19b14%2Foidc%2Fcallback&client_id=9ba1fa2d23a14378aef39d651fb19b14&scope=openid%20https%3A%2F%2Fuuapp.plus4u.net%2Fuu-specialistwtmg01-main%2F99923616732453117-8031926f783d4aaba733af73c1974840&prompt=none";
         GM_xmlhttpRequest(
             {
               method: 'GET',
