@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Toggl integration with Plus4U and Jira
 // @namespace    https://github.com/jiri-neuman/toggl2plus4u
-// @version      0.7.5
+// @version      0.7.6
 // @description  Integrates Toggl with Plus4U Work Time Management and Jira
 // @author       Jiri Neuman
 // @match        https://toggl.com/app/timer*
@@ -67,6 +67,11 @@ GM_addStyle(`
     }
 `);
 
+function toWtmSubject(project) {
+  const subject = project.trim();
+  return /^(?:ues:|[a-z][a-z0-9+.-]*:\/\/)/i.test(subject) ? subject : `ues:${subject}`;
+}
+
 class Plus4uWtm {
 
   constructor() {
@@ -86,7 +91,7 @@ class Plus4uWtm {
       let dtoIn = {};
       dtoIn.datetimeFrom = timeEntry.start.toISOString();
       dtoIn.datetimeTo = timeEntry.stop.toISOString();
-      dtoIn.subject = `ues:${timeEntry.project.trim()}`;
+      dtoIn.subject = toWtmSubject(timeEntry.project);
       if (timeEntry.category) {
         dtoIn.category = timeEntry.category;
       }
