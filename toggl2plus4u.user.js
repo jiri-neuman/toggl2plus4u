@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Toggl integration with Plus4U and Jira
 // @namespace    https://github.com/jiri-neuman/toggl2plus4u
-// @version      0.7.4
+// @version      0.7.5
 // @description  Integrates Toggl with Plus4U Work Time Management and Jira
 // @author       Jiri Neuman
 // @match        https://toggl.com/app/timer*
@@ -860,23 +860,28 @@ class StoredValue {
   let autoRound = new StoredValue(Storage.AUTO_RND_ID);
   let cpJiraKey = new StoredValue(Storage.CP_JIRA_KEY_ID);
   console.log(`Automatic rounding: ${autoRound}`);
-  let initPage = async function () {
-    console.info("Initializing Toggl2plus4u extension.");
+  let toolbarNodes = null;
+  let toolbarInitialized = false;
+  let syncingToolbar = false;
 
-    if (!isPageReady()) {
-      setTimeout(initPage, 1000);
+  // Toggl first paints a centered spinner in `.content-wrapper`, then replaces that node
+  // with the real shell once workspace data arrives. A one-shot inject into the spinner is discarded.
+  let getShellWrapper = function () {
+    const wrappers = document.querySelectorAll(".right-pane-inner .content-wrapper");
+    for (const wrapper of wrappers) {
+      const isLoadingShell = wrapper.classList.contains("items-center")
+          && wrapper.classList.contains("justify-center");
+      if (!isLoadingShell) {
+        return wrapper;
+      }
+    }
+    return null;
+  };
+
+  let ensureToolbarBuilt = function () {
+    if (toolbarNodes) {
       return;
     }
-
-    await addToolbar();
-  };
-
-  let isPageReady = function () {
-      return $(".right-pane-inner").length;
-  };
-
-  let addToolbar = async function () {
-    console.info("Adding toolbar to the page.");
 
     const thisWeek = DateUtils.getThisWeek();
     const configPanel = `<div class="inputPanel">
@@ -889,18 +894,61 @@ class StoredValue {
         thisWeek.end)} /></div><div id="uniExtToSummary"></div><div id="uniExtStatus"></div><div id="uniExtLogs"><textarea id="uniExtAppLogArea" name="AppLog" rows="5" cols="100" disabled></textarea></div></div>`;
     const buttons = `<div class="buttonsPanel"><button id="uniExtBtnRound">Round times</button><button id="uniExtBtnReport">Report</button></div>`;
     const toolbar = `<div id="uniExtToolbar">${configPanel} <br/> ${inputPanel} ${buttons}</div><div id="uniExtMessages"></div>`;
-    $(".right-pane-inner .content-wrapper").prepend(toolbar);
+    const template = document.createElement("template");
+    template.innerHTML = toolbar;
+    toolbarNodes = Array.from(template.content.childNodes).filter(function (node) {
+      return node.nodeType === Node.ELEMENT_NODE;
+    });
 
-    document.getElementById("uniExtBtnRound").addEventListener("click", roundTsrReport, false);
-    document.getElementById("uniExtBtnReport").addEventListener("click", reportWork, false);
-    document.getElementById("uniExtFrom").addEventListener("change", onReportDataChange, false);
-    document.getElementById("uniExtTo").addEventListener("change", onReportDataChange, false);
-    document.getElementById("uniAutoRnd").addEventListener("click", autoRound.save.bind(autoRound), false);
-    document.getElementById("uniCpJiraKey").addEventListener("click", cpJiraKey.save.bind(cpJiraKey), false);
+    const root = toolbarNodes[0];
+    root.querySelector("#uniExtBtnRound").addEventListener("click", roundTsrReport, false);
+    root.querySelector("#uniExtBtnReport").addEventListener("click", reportWork, false);
+    root.querySelector("#uniExtFrom").addEventListener("change", onReportDataChange, false);
+    root.querySelector("#uniExtTo").addEventListener("change", onReportDataChange, false);
+    root.querySelector("#uniAutoRnd").addEventListener("click", autoRound.save.bind(autoRound), false);
+    root.querySelector("#uniCpJiraKey").addEventListener("click", cpJiraKey.save.bind(cpJiraKey), false);
+    appLog = new ScriptLog(root.querySelector("#uniExtAppLogArea"));
+  };
 
-    appLog = new ScriptLog(document.getElementById("uniExtAppLogArea"));
-    appLog.info("Toolbar initialized.");
-    await printReportSummary();
+  let syncToolbar = async function () {
+    if (syncingToolbar) {
+      return;
+    }
+    const wrapper = getShellWrapper();
+    if (!wrapper) {
+      return;
+    }
+    if (toolbarNodes && toolbarNodes[0].parentElement === wrapper) {
+      return;
+    }
+
+    syncingToolbar = true;
+    try {
+      console.info("Adding toolbar to the page.");
+      ensureToolbarBuilt();
+      wrapper.prepend(...toolbarNodes);
+      if (!toolbarInitialized) {
+        toolbarInitialized = true;
+        appLog.info("Toolbar initialized.");
+        await printReportSummary();
+      }
+    } finally {
+      syncingToolbar = false;
+    }
+
+    const currentWrapper = getShellWrapper();
+    if (currentWrapper && toolbarNodes[0].parentElement !== currentWrapper) {
+      await syncToolbar();
+    }
+  };
+
+  let initPage = function () {
+    console.info("Initializing Toggl2plus4u extension.");
+    const observer = new MutationObserver(function () {
+      syncToolbar();
+    });
+    observer.observe(document.body, {childList: true, subtree: true});
+    syncToolbar();
   };
 
   let onReportDataChange = async function () {
